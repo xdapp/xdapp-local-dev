@@ -1,0 +1,686 @@
+#!/usr/bin/env node
+const path = require('path');
+const fs = require('fs');
+const zlib = require('zlib');
+const program = require('commander');
+const os = require('os');
+const http = require('http');
+const net = require('net');
+const ToolsAssets = require('./ToolsAssets');
+const hprose = require('hprose');
+const Future = hprose.Future;
+const crypto = require('crypto');
+
+program
+    .version('1.0')
+    .option('-h, --host <string>', '监听IP，默认 0.0.0.0')
+    .option('-p, --port <n>', '监听端口，默认 8060')
+    .option('--nocompress', '研发模式时关闭压缩')
+    .option('--nocache', '禁用缓存')
+    .option('--dev', '研发模式, 将关闭压缩功能')
+    .option('--rebuild', '启动时重新生成静态页面')
+    .parse(process.argv);
+
+const host = program.host || '0.0.0.0';
+const port = (program.port || 8060) - 0;
+const sPort = port + 1;
+
+if (port < 80) {
+    console.log("端口错误, 不可小于80");
+    return;
+}
+
+const BASE_DIR   = path.resolve(__dirname + '/../').replace(/\\/, '/') + '/';
+const assetPath  = `${BASE_DIR}webroot/`;
+const isCompress = true !== program.nocompress && !program.dev;
+
+let cachedFiles = {};
+let TEMP_DIR = `${BASE_DIR}.cache/`;
+if (!fs.existsSync(TEMP_DIR)) {
+    if (!fs.mkdirSync(TEMP_DIR, 0o755)) {
+        TEMP_DIR = os.tmpdir();
+    }
+}
+ToolsAssets.setCompress(!program.nocompress);
+ToolsAssets.setDevelop(program.dev);
+
+if (program.rebuild) {
+    ToolsAssets.reBuild({
+        compress: isCompress,
+        dev : program.dev,
+    });
+}
+else if (program.dev) {
+    ToolsAssets.reBuild({
+        compress: isCompress,
+        dev : program.dev,
+        onlyMissFile: true,     // 只更新丢失的文件
+    });
+}
+
+function outIndexPage(response) {
+    const reqFile = assetPath + 'index.html';
+    response.setHeader('Content-Type', 'text/html');
+    if (cachedFiles[reqFile] && (new Date().getTime() - cachedFiles[reqFile].lastActiveTime < 86400)) {
+        response.end(cachedFiles[reqFile].content);
+    }
+    else {
+        const req = require('request');
+        req('https://dev-assets.xdapp.com/ui-agent-dev-index.html', {
+            headers: {
+                'Accept-Encoding': 'none',  // 返回内容不要压缩
+            }
+        }, function (error, rep, body) {
+            response.statusCode = rep.statusCode;
+            response.end(body);
+
+            if (rep.statusCode === 200) {
+                // 放入缓存
+                cachedFiles[reqFile] = {
+                    lastActiveTime: new Date().getTime(),
+                    content: body
+                };
+            }
+        });
+    }
+}
+
+const httpServer = http.Server((request, response) => {
+    let uri   = request.url.substr(1).split('#')[0].split('?')[0],
+        ext   = path.extname(uri);
+    const uriArr = uri.split('/');
+    const action = uriArr[0];
+
+    if ('' === ext || uri.substr(uri.length - 1) === '/') {
+        // 显示页面
+        outIndexPage(response);
+        return;
+    }
+
+    switch (action) {
+        case 'status':
+            response.end('ok');
+            return;
+
+        case 'dev-config.js':
+            response.setHeader('Content-Type', 'text/javascript');
+            response.end(
+                'window._AssetsIsDev=true;\n' +
+                'var _isXdAppAppAgentDev = true;' +
+                'var assetsUrl = "https://dev-assets.xdapp.com/";\n' +
+                'var assetsVer = "v1";\n' +
+                'var libVersion = "1";\n' +
+                'var serviceUrl = "http://127.0.0.1:'+ (sPort+1) +'/";\n'
+            );
+            return;
+
+        case 'api':
+            if (uri === 'api/menu.json' || uri === 'api/setting.json') {
+                fs.readFile(BASE_DIR + uri.substr(4), (err, content) => {
+                    if (err) {
+                        response.statusCode = 404;
+                        response.end('file not found');
+                        return;
+                    }
+                    response.end(content);
+                });
+                return;
+            }
+    }
+
+    if ('' === ext) {
+        // 没有后缀
+        response.statusCode = 404;
+        response.end('file not found');
+        return;
+    }
+
+    const reqFile = assetPath + uri;
+    let fileData;
+    if (cachedFiles[reqFile]) {
+        fileData = cachedFiles[reqFile];
+    }
+    else if (!fs.existsSync(reqFile)) {
+        response.statusCode = 404;
+        response.end('file not found' + reqFile);
+        return;
+    }
+    else {
+        fileData = {
+            mtimeMs: fs.statSync(reqFile).mtimeMs
+        };
+    }
+
+    // 支持AJAX跨域
+    if (request.headers['access-control-request-headers']) {
+        response.setHeader('Access-Control-Allow-Headers', request.headers['access-control-request-headers']);
+    }
+    if (request.headers['origin']) {
+        response.setHeader('Access-Control-Allow-Origin', request.headers['origin']);
+        response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    }
+    if (request.method === 'OPTIONS') {
+        response.statusCode = 200;
+        response.end();
+        return;
+    }
+
+    // 更新最后访问时间
+    fileData.lastActiveTime = new Date().getTime();
+
+    response.setHeader('Content-Type', assetTypes[ext] || 'application/octet-stream');
+    // 输出浏览器缓存信息
+    // if (request.headers['pragma'] && request.headers['pragma'] === 'no-cache') {
+    //     setHeaderCache(response, 0, fileData.mtimeMs);
+    // }
+    // else {
+    //     setHeaderCache(response, 86400, fileData.mtimeMs);
+    // }
+
+    const outGz = function (content) {
+        zlib.gzip(content, (err, buffer) => {
+            fileData.gzip = buffer;
+            response.setHeader('Content-Encoding', 'gzip');
+            response.end(buffer);
+        });
+    };
+
+    if (assetsGzipType[ext]) {
+        if (fileData.gzip) {
+            // 输出Gzip缓存
+            response.setHeader('Content-Encoding', 'gzip');
+            response.end(fileData.gzip);
+            return;
+        }
+        else if (fileData.content) {
+            outGz(fileData.content);
+            return;
+        }
+    }
+    else if(fileData.content) {
+        // 输出未压缩的内容
+        response.end(fileData.content);
+        return;
+    }
+
+    fs.readFile(reqFile, (err, content) => {
+        if (err) {
+            response.statusCode = 500;
+            response.end(err.toString());
+            return;
+        }
+        if (ext === '.js' && uri.substr(uri.length - 20) === '/js/require-setup.js') {
+            content = fixSetupContent(content);
+        }
+        if (!program.nocache && !program.dev && ext !== '.map' && uriArr[0] !== 'app' && uriArr[0] !== 'images') {
+            // 记录缓存
+            fileData.content = content;
+            cachedFiles[reqFile] = fileData;
+        }
+        // 处理压缩
+        if (assetsGzipType[ext]) {
+            outGz(content);
+            return;
+        }
+        response.end(content);
+    });
+});
+
+let io;
+if (program.dev) {
+    // 研发模式
+    io = require('socket.io')(httpServer);
+}
+
+ToolsAssets.watchProject({
+    compress: isCompress,
+    dev : program.dev,
+    done(result) {
+        const out = result.out;
+        if (ToolsAssets.isXdAppAssetFile(out)) {
+            // 清理hash文件缓存
+            const hashFile = ToolsAssets.getAssetsHashFile();
+            delete cachedFiles[hashFile];
+        }
+        if (result.type === 'delete') {
+            // 移除文件
+            delete cachedFiles[out];
+        }
+        else {
+            const time = new Date().getTime();
+            cachedFiles[out] = {
+                mtimeMs: time,
+                content: result.contentOut,
+                lastActiveTime: time,
+            };
+            if (program.dev) {
+                setTimeout(() => {
+                    io.emit('up', {
+                        type: result.type,
+                        hash: result.hash,
+                        uri: result.out.substr(assetPath.length),
+                    });
+                }, 300);
+            }
+        }
+    }
+});
+
+httpServer.listen(port, host, function() {
+    console.log('    listening console web on http://'+ host +':'+ port);
+    console.log('    listening develop rpc server on tcp://127.0.0.1:' + sPort);
+    console.log('    listening develop rpc for web console on tcp://127.0.0.1:' + (sPort + 1));
+});
+
+let lastRequestId = 0;
+const RpcCallback = {};
+const RpcServices = {};
+const RPC_VERSION = 1;
+const FLAG_SYS_MSG = 1;
+const FLAG_RESULT_MODE = 2;
+const FLAG_FINISH = 4;
+const FLAG_TRANSPORT = 8;
+const serverRcp = net.createServer((socket) => {
+    let serviceName, appName, version, serviceKey = '123456';
+    console.log('rpc client connected');
+
+    function getHash(time, rand) {
+        return sha1(`${appName}.${serviceName}.${time}.${rand}.${serviceKey}.xdapp.com`);
+    }
+
+    socket.on('data', (data) => {
+        // CFlag/CVer/NLength/NAppId/NServiceId/NRequestId/NAdminId/CContextLength
+        if (data.length < 20) {
+            console.log("收到一个错误RPC数据，已关闭连接");
+            socket.end();
+            return;
+        }
+        const flag = data.readInt8(0);
+        const ver  = data.readInt8(1);
+        if (ver !== 1) {
+            console.log("关闭了一个连接");
+            socket.end();
+            return;
+        }
+
+        const length = data.readInt32BE(2);
+        const contextLength = data.readInt8(22);
+        const request = {
+            flag          : flag,
+            ver           : RPC_VERSION,
+            length        : length,
+            appId         : data.readInt32BE(6),
+            serviceId     : data.readInt32BE(10),
+            requestId     : data.readInt32BE(14),
+            adminId       : data.readInt32BE(18),
+            contextLength : contextLength,
+            context       : contextLength > 0 ? data.slice(23, 23 + contextLength) : '',
+            body          : data.slice(contextLength + 23),
+        };
+
+        if ((flag & FLAG_RESULT_MODE) === FLAG_RESULT_MODE) {
+            if ((flag & FLAG_SYS_MSG) === FLAG_SYS_MSG || (flag & FLAG_TRANSPORT) === FLAG_TRANSPORT) {
+                // 收到系统消息返回, 或来自浏览器的请求
+                let rs = hprose.unserialize(request.body.slice(1, request.body.length - 1).toString());
+                const reqId = '_' + request.requestId;
+                if (request.body.slice(0, 1).toString() === 'E') {
+                    rs = new Error(rs);
+                }
+                if (RpcCallback[reqId]) {
+                    const eve = RpcCallback[reqId];
+                    delete RpcCallback[reqId];
+                    try {
+                        eve[0](rs);
+                    }catch (e) {
+                        console.error(e);
+                    }
+                }
+            }
+            else {
+                // 来自另外一个agent的请求
+                console.log('[rpc] 暂不支持rpc服务间通信');
+            }
+        }
+        else {
+            // 转发RPC请求
+            console.log('[rpc] 暂不支持rpc服务间通信');
+        }
+    });
+    socket.on('end', () => {
+        console.log('client disconnected');
+        if (RpcServices[serviceName] === socket)delete RpcServices[serviceName];
+    });
+
+    // 连接上发送
+    (function() {
+        const time = parseInt(new Date().getTime() / 1000);
+        const rand = '_' + new Date().getTime();
+        const hash = sha1(`${time}.${rand}.xdapp.com`);
+
+        sysCall('reg', [time, rand, hash], (rs) => {
+            if (!rs) {
+                socket.end();
+                return;
+            }
+            if (!rs.app || !rs.name || !rs.time) {
+                socket.end();
+                return;
+            }
+
+            appName     = rs.app;
+            serviceName = rs.name;
+            version     = rs.version;
+
+            if (rs.hash !== getHash(rs.time, rs.rand)) {
+                console.log('hash error');
+                sysCall('regErr', ['验证密钥错误，默认为 123456, 请检查']);
+                setTimeout(() => {
+                    socket.end();
+                }, 200);
+                return;
+            }
+
+            const rand = '_' + new Date().getTime();
+            const time = parseInt(new Date().getTime() / 1000);
+            const hash = getHash(time, rand);
+
+            if (RpcServices[serviceName]) {
+                // 已经存在, 关闭旧链接
+                RpcServices[serviceName].end();
+            }
+            RpcServices[serviceName] = socket;
+
+            console.log('[rpc] 注册了一个新服务: ' + serviceName);
+
+            // 注册成功
+            sysCall('regOk', [{}, time, rand, hash]);
+            return null;
+        });
+    })();
+
+    function sysCall(fun, args, callback) {
+        const contextStr = '';
+        const request = {
+            flag: 1,
+            appId: 0,
+            serviceId: 0,
+            requestId: ++lastRequestId,
+            adminId: 0,
+            context: Buffer.from(contextStr),
+            body: 'C' + hprose.serialize('sys_' + fun) + hprose.serialize(args) + 'z',
+        };
+        transportToService(socket, request, callback, 10);
+    }
+
+}).on('error', (err) => {
+    console.log(err);
+});
+serverRcp.listen(sPort, host, () => {});
+
+
+// 清理超时的请求
+setInterval(() => {
+    const now = new Date().getTime();
+    for (var k in RpcCallback) {
+        let item = RpcCallback[k];
+        if (now > item[1]) {
+            delete RpcCallback[k];
+            item[0](new Error('time out'));
+        }
+    }
+}, 1000 * 60 * 10);
+
+
+/**
+ *
+ * @param socket 连接对象
+ * @param request 请求体
+ * @param callback 收到消息后的回调处理方法
+ * @param {int} timeout 超时时间，单位秒
+ */
+function transportToService(socket, request, callback, timeout) {
+    // CFlag/CVer/NLength/NAppId/NServiceId/NRequestId/NAdminId/CContextLength
+    const packagePrefixLen = 6;
+    const headerLength = 17;
+    const context = Buffer.from(request.context || '');
+    const body = Buffer.from(request.body);
+
+    const length = headerLength + context.length + body.length;
+
+    const bufHeader = new Buffer.alloc(packagePrefixLen + headerLength);
+    // packagePrefix
+    const flag = request.flag | FLAG_TRANSPORT;
+    bufHeader.writeInt8(flag, 0);                         // flag
+    bufHeader.writeInt8(RPC_VERSION, 1);                  // ver
+    bufHeader.writeInt32BE(length, 2);                    // length
+    // header
+    bufHeader.writeInt32BE(request.appId, 6);             // appId
+    bufHeader.writeInt32BE(request.serviceId, 10);        // serviceId
+    bufHeader.writeInt32BE(request.requestId, 14);        // requestId
+    bufHeader.writeInt32BE(request.adminId, 18);          // adminId
+    bufHeader.writeInt8(context.length, 22);       // contextLength
+
+    const buffers = [bufHeader];
+    if (request.context.length > 0) {
+        // 将自定义内容加入
+        buffers.push(context);
+    }
+    buffers.push(Buffer.from(body));
+    const buf = Buffer.concat(buffers, packagePrefixLen + length);
+
+    if (callback) {
+        // 加入一个回调事件
+        RpcCallback['_' + request.requestId] = [callback, new Date().getTime() + 1000 * (timeout || 120)];
+    }
+
+    socket.write(buf);
+}
+
+
+
+
+const serverWs = hprose.Server.create("ws://0.0.0.0:" + (sPort + 1));
+// 订阅功能
+serverWs.publish('xdapp_subscribe', {
+    'timeout'  : 3600 * 1000,
+    'heartbeat': 600 * 1000,
+});
+
+// 获取时间戳
+serverWs.addFunction(function () {
+    return parseInt(new Date().getTime() / 1000);
+}, 'xdapp_time_getTime');
+
+// 格式化时间
+serverWs.addFunction(function (f = 'Y-m-d H:i:s') {
+    const date = new Date();
+    const y = date.getFullYear();       // 获取完整的年份(4位,1970)
+    const m = date.getMonth();          // 获取月份(0-11,0代表1月,用的时候记得加上1)
+    const d = date.getDate();           // 获取日(1-31)
+    const H = date.getHours();          // 获取小时数(0-23)
+    const i = date.getMinutes();        // 获取分钟数(0-59)
+    const s = date.getSeconds();        // 获取秒数(0-59)
+    const u = date.getMilliseconds();   // 毫秒
+
+    function num2str(num) {
+        return num < 10 ? '0' + num : num;
+    }
+    return f.replace(/Y/g, y)
+        .replace(/m/g, num2str(m + 1))
+        .replace(/d/g, num2str(d))
+        .replace(/H/g, num2str(H))
+        .replace(/i/g, num2str(i))
+        .replace(/u/g, num2str(u))
+        .replace(/s/g, num2str(s));
+}, 'xdapp_time_format');
+
+// 获取权限列表
+serverWs.addFunction(function () {
+    return [];
+}, 'xdapp_admin_getMyOauthList');
+
+// 获取角色
+serverWs.addFunction(function () {
+    return [];
+}, 'xdapp_menu_getRoles');
+
+serverWs.addAsyncMissingFunction(function (name, args, callback) {
+    const pos = name.indexOf('_');
+    const err = new Error('Can\'t find this function ' + name);
+    if (-1 === pos) {
+        throw err;
+    }
+    const serviceName = name.substr(0, pos);
+
+    if (!RpcServices[serviceName]) {
+        throw err;
+    }
+    const socket = RpcServices[serviceName];
+
+    // 将消息转发给RPC Agent服务器
+    const contextStr = '';
+    const request = {
+        flag: 0,
+        appId: 0,
+        serviceId: 1,
+        requestId: ++lastRequestId,
+        adminId: 10,
+        contextLength: contextStr.length,
+        context: Buffer.from(contextStr),
+        body: 'C' + hprose.serialize(name) + hprose.serialize(args) + 'z',
+    };
+    transportToService(socket, request, callback, 600);
+});
+
+serverWs.start();
+
+
+function sha1(str) {
+    let hmac = crypto.createHash('sha1');
+    hmac.update(str);
+    return hmac.digest('hex');
+}
+
+const assetTypes = {
+    '.html'    : 'text/html',
+    '.htm'     : 'text/html',
+    '.shtml'   : 'text/html',
+    '.css'     : 'text/css',
+    '.xml'     : 'text/xml',
+    '.gif'     : 'image/gif',
+    '.jpeg'    : 'image/jpeg',
+    '.jpg'     : 'image/jpeg',
+    '.js'      : 'application/x-javascript',
+    '.atom'    : 'application/atom+xml',
+    '.rss'     : 'application/rss+xml',
+    '.mml'     : 'text/mathml',
+    '.txt'     : 'text/plain',
+    '.jad'     : 'text/vnd.sun.j2me.app-descriptor',
+    '.wml'     : 'text/vnd.wap.wml',
+    '.htc'     : 'text/x-component',
+    '.png'     : 'image/png',
+    '.tif'     : 'image/tiff',
+    '.tiff'    : 'image/tiff',
+    '.wbmp'    : 'image/vnd.wap.wbmp',
+    '.ico'     : 'image/x-icon',
+    '.jng'     : 'image/x-jng',
+    '.bmp'     : 'image/x-ms-bmp',
+    '.svg'     : 'image/svg+xml',
+    '.svgz'    : 'image/svg+xml',
+    '.webp'    : 'image/webp',
+    '.woff'    : 'application/font-woff',
+    '.woff2'   : 'application/font-woff',
+    '.map'     : 'text/plain',
+    '.jar'     : 'application/java-archive',
+    '.war'     : 'application/java-archive',
+    '.ear'     : 'application/java-archive',
+    '.json'    : 'application/json',
+    '.hqx'     : 'application/mac-binhex40',
+    '.doc'     : 'application/msword',
+    '.pdf'     : 'application/pdf',
+    '.ps'      : 'application/postscript',
+    '.eps'     : 'application/postscript',
+    '.ai'      : 'application/postscript',
+    '.rtf'     : 'application/rtf',
+    '.m3u8'    : 'application/vnd.apple.mpegurl',
+    '.xls'     : 'application/vnd.ms-excel',
+    '.eot'     : 'application/vnd.ms-fontobject',
+    '.ppt'     : 'application/vnd.ms-powerpoint',
+    '.wmlc'    : 'application/vnd.wap.wmlc',
+    '.kml'     : 'application/vnd.google-earth.kml+xml',
+    '.kmz'     : 'application/vnd.google-earth.kmz',
+    '.7z'      : 'application/x-7z-compressed',
+    '.cco'     : 'application/x-cocoa',
+    '.jardiff' : 'application/x-java-archive-diff',
+    '.jnlp'    : 'application/x-java-jnlp-file',
+    '.run'     : 'application/x-makeself',
+    '.pl'      : 'application/x-perl',
+    '.pm'      : 'application/x-perl',
+    '.prc'     : 'application/x-pilot',
+    '.pdb'     : 'application/x-pilot',
+    '.rar'     : 'application/x-rar-compressed',
+    '.rpm'     : 'application/x-redhat-package-manager',
+    '.sea'     : 'application/x-sea',
+    '.swf'     : 'application/x-shockwave-flash',
+    '.sit'     : 'application/x-stuffit',
+    '.tcl'     : 'application/x-tcl',
+    '.tk'      : 'application/x-tcl',
+    '.der'     : 'application/x-x509-ca-cert',
+    '.pem'     : 'application/x-x509-ca-cert',
+    '.crt'     : 'application/x-x509-ca-cert',
+    '.xpi'     : 'application/x-xpinstall',
+    '.xhtml'   : 'application/xhtml+xml',
+    '.xspf'    : 'application/xspf+xml',
+    '.zip'     : 'application/zip',
+    '.bin'     : 'application/octet-stream',
+    '.exe'     : 'application/octet-stream',
+    '.dll'     : 'application/octet-stream',
+    '.deb'     : 'application/octet-stream',
+    '.dmg'     : 'application/octet-stream',
+    '.iso'     : 'application/octet-stream',
+    '.img'     : 'application/octet-stream',
+    '.msi'     : 'application/octet-stream',
+    '.msp'     : 'application/octet-stream',
+    '.msm'     : 'application/octet-stream',
+    '.docx'    : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xlsx'    : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.pptx'    : 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.mid'     : 'audio/midi',
+    '.midi'    : 'audio/midi',
+    '.kar'     : 'audio/midi',
+    '.mp3'     : 'audio/mpeg',
+    '.ogg'     : 'audio/ogg',
+    '.m4a'     : 'audio/x-m4a',
+    '.ra'      : 'audio/x-realaudio',
+    '.3gpp'    : 'video/3gpp',
+    '.3gp'     : 'video/3gpp',
+    '.ts'      : 'video/mp2t',
+    '.mp4'     : 'video/mp4',
+    '.mpeg'    : 'video/mpeg',
+    '.mpg'     : 'video/mpeg',
+    '.mov'     : 'video/quicktime',
+    '.webm'    : 'video/webm',
+    '.flv'     : 'video/x-flv',
+    '.m4v'     : 'video/x-m4v',
+    '.mng'     : 'video/x-mng',
+    '.asx'     : 'video/x-ms-asf',
+    '.asf'     : 'video/x-ms-asf',
+    '.wmv'     : 'video/x-ms-wmv',
+    '.avi'     : 'video/x-msvideo',
+};
+
+/**
+ * 静态文件开启压缩功能
+ *
+ * @var bool
+ */
+const assetsGzipType = {
+    '.js'   : true,
+    '.css'  : true,
+    '.html' : true,
+    '.htm'  : true,
+    '.jsom' : true,
+    '.txt'  : true,
+    '.xml'  : true,
+    '.svg'  : true,
+};

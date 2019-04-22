@@ -1,0 +1,241 @@
+#!/usr/bin/env node
+
+// 在 linux 下也支持子文件夹的监听
+const fs     = require('fs');
+const crypto = require('crypto');
+const os     = require('os');
+const isRequired = process.argv[1] !== __filename;
+
+if (!isRequired && process.argv.length < 3) {
+    console.log("缺少路径参数");
+    return;
+}
+
+const osType = os.type();
+
+// 所有文件MD5列表
+let fileMd5List = {};
+
+// 待通知修改的列表
+let notifyList = {};
+
+// 执行定时器
+let timer = null;
+
+function file_md5(file)
+{
+    let buffer = fs.readFileSync(file);
+    let fsHash = crypto.createHash('md5');
+    fsHash.update(buffer);
+    return fsHash.digest('hex');
+}
+
+function getChangeType(path)
+{
+    if (fs.existsSync(path)) {
+        if (typeof fileMd5List[path] === "undefined") {
+            // add
+            const hash = fileMd5List[path] = file_md5(path);
+            return {
+                type: 'add',
+                file: path,
+                hash: hash
+            };
+        }
+        else {
+            let newMd5 = file_md5(path);
+            if (fileMd5List[path] !== newMd5) {
+                fileMd5List[path] = newMd5;
+                return {
+                    type: 'change',
+                    file: path,
+                    hash: newMd5
+                };
+            }
+        }
+    }
+    else if (typeof fileMd5List[path] !== "undefined")
+    {
+        return {
+            type: 'delete',
+            file: path,
+        };
+    }
+
+    return null;
+}
+
+function loadDirFilesHash(root, call) {
+    root = root.replace(/[\/|\\]+$/, '');
+    fs.readdir(root, (err, files) => {
+        if (err) {
+            return call(err);
+        }
+        files.forEach(function (file) {
+            const pathname = root + '/' + file;
+            fs.lstat(pathname, (err, stat) => {
+                if (stat.isDirectory()) {
+                    loadDirFilesHash(pathname, call);
+                }
+                else {
+                    const hash = file_md5(pathname);
+                    fileMd5List[pathname] = hash;
+                    call(undefined, pathname, hash);
+                }
+            });
+        });
+    });
+}
+
+function watch(root, call, opt = {})
+{
+    if (false === fs.existsSync(root))return;
+    root = root.replace(/[\/|\\]+$/, '');
+    call = call || function (err) {
+        if (err)console.error(err);
+    };
+
+    // 读取所有文件
+    if (!opt.notLoadHash) {
+        loadDirFilesHash(root, call);
+    }
+
+    const callback = getCallback(root, call);
+    if (osType === 'Linux') {
+        fs.watch(root, callback);
+        fs.readdir(root, (err, files) => {
+            if (err) {
+                return call(err);
+            }
+            files.forEach(function(file) {
+                let pathname = root + '/' + file;
+                fs.lstat(pathname, (err, stat) => {
+                    if (err) {
+                        return call(err);
+                    }
+                    if (stat.isDirectory()) {
+                        watchSubDir(pathname, call);
+                    }
+                });
+            });
+        });
+    }
+    else {
+        // recursive = true 目前只支持 mac 和 window see https://nodejs.org/dist/latest-v6.x/docs/api/fs.html#fs_caveats
+        fs.watch(root, {recursive: true}, callback);
+    }
+}
+
+let watchSubDirList = [];
+function watchSubDir(root, call)
+{
+    if (typeof watchSubDirList[root] === "undefined") {
+        watchSubDirList[root] = [];
+    }
+    let callback = getCallback(root, call);
+    fs.watch(root, {}, callback);
+    fs.readdir(root, (err, files) => {
+        if (err) {
+            return call(err);
+        }
+        files.forEach(function (file) {
+            let pathname = root + '/' + file, stat = fs.lstatSync(pathname);
+            if (stat.isDirectory()) {
+                // 目录
+                watchSubDir(pathname, call);
+            }
+        });
+    });
+}
+
+function unwatchSubDir(root) {
+    fs.unwatchFile(root);
+    // 移除子目录的监听
+    if (typeof watchSubDirList[root] === "object") {
+        watchSubDirList[root].forEach(function (v) {
+            unwatchSubDir(v);
+        });
+        delete watchSubDirList[root];
+    }
+}
+
+function getCallback(root, call) {
+    return function(eventType, filename) {
+        if (filename) {
+            let path = root + '/' + filename;
+            try {
+                if (fs.existsSync(path)) {
+                    let stat = fs.lstatSync(path);
+                    if (stat.isDirectory()) {
+                        // 新文件夹
+                        if (osType === 'Linux') {
+                            watchSubDir(path, call);
+                        }
+                        return;
+                    }
+                }
+            }
+            catch (err) {
+                call(err);
+                return;
+            }
+
+            let result = getChangeType(path);
+            if (null !== result) {
+                notifyList[path] = result;
+            }
+            else {
+                unwatchSubDir(path);
+            }
+
+            if (!timer) {
+                if (isRequired) {
+                    timer = setTimeout(function () {
+                        timer = null;
+                        let list = [];
+                        for (let file in notifyList) {
+                            list.push(notifyList[file]);
+                        }
+                        call(undefined, list);
+                        notifyList = {};
+                    }, 40);
+                }
+                else {
+                    timer = setTimeout(function () {
+                        timer   = null;
+                        let out = '';
+                        for (let k in notifyList) {
+                            out += JSON.stringify(notifyList[k]) + "\n";
+                            if (out.length > 8000) {
+                                process.stdout.write(out);
+                                out = '';
+                            }
+                        }
+                        if (out !== '') {
+                            process.stdout.write(out);
+                        }
+                        notifyList = {};
+                    }, 40);
+                }
+            }
+        }
+    };
+}
+
+if (isRequired) {
+    module.exports = watch;
+    module.exports.getFileHash = (file = null) => {
+        if (file) {
+            return fileMd5List[file];
+        }
+        else {
+            return fileMd5List;
+        }
+    };
+    module.exports.loadDirFilesHash = loadDirFilesHash;
+}
+else {
+    for (let i = 2; i < process.argv.length; i++) {
+        watch(process.argv[i])
+    }
+}

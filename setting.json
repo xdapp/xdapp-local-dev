@@ -1,0 +1,24 @@
+{
+  "adminId": 10,
+  "admin": {
+    "id": 10,
+    "name": "开发测试号",
+    "email": "demo@xindong.com",
+    "phone": "135****1234"
+  },
+  "isDeveloper": true,
+  "company": {
+    "name": "心动网络股份有限公司",
+    "logo": {
+      "white": "https://assets.xdapp.com/images/xd-logo.svg",
+      "black": "https://assets.xdapp.com/images/xd-logo-white.svg"
+    }
+  },
+  "services": [
+    {
+      "name": "dev",
+      "version": "dev-master"
+    }
+  ],
+  "status": "success"
+}

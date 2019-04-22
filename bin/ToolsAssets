@@ -1,0 +1,714 @@
+#!/usr/bin/env node
+const program     = require('commander');
+const path        = require('path');
+const fs          = require('fs');
+const crypto      = require('crypto');
+const YAML        = require('yaml').default;
+const UglifyJS    = require("uglify-es");
+const sass        = require('node-sass');
+const compilerVue = require('./compiler-vue');
+
+// 根目录
+const BASE_DIR  = path.resolve(__dirname + '/../') + '/';
+const SRC_DIR   = `${BASE_DIR}src/`;
+const VERSION   = 'app';
+const OUT_DIR   = `${BASE_DIR}webroot/${VERSION}/`;
+const HASH_FILE = `${OUT_DIR}assets-hash.json`;
+
+let assetsHash = fs.existsSync(HASH_FILE) ? JSON.parse(fs.readFileSync(HASH_FILE)) : {};
+let isDevelop  = false;
+let isCompress = true;
+
+if (process.argv[1] !== __filename) {
+    // 导出方法
+    module.exports = {
+        buildFile,
+        reBuild: function (opt = {}) {
+            let from = SRC_DIR;
+            let to   = OUT_DIR;
+            if (!opt.onlyMissFile) {
+                if (fs.existsSync(to)) {
+                    console.log(`    \x1b[33mclean: ${to}\x1b[0m`);
+                    cleanDir(to);
+                }
+                assetsHash = {};
+            }
+
+            let tick = null;
+            opt.done = (result) => {
+                if (isXdAppAssetFile(result.out)) {
+                    setXdAppAssetFileHash(result.out, result.hash || md5(result.content), true);
+                    if (tick) {
+                        clearTimeout(tick);
+                        tick = null;
+                    }
+                    tick = setTimeout(() => {
+                        tick = null;
+                        saveXdAppAssetHashFile();
+                    }, 200);
+                }
+            };
+            buildDir(from, to, opt);
+        },
+        watchProject,
+        setDevelop: function (status) {
+            isDevelop = status;
+        },
+        setCompress: function (status) {
+            isCompress = status;
+        },
+        getAssetsHashFile() {
+            return HASH_FILE;
+        },
+        ksortRecursive: ksortRecursive,
+        isXdAppAssetFile: isXdAppAssetFile,
+    };
+}
+else {
+    // 命令行执行
+    const myName = __filename.split(path.sep).pop();
+    program
+        .version('1.1')
+        .usage('watch|build [options]')
+        .option('--dev', '研发模式')
+        .option('--nocompress', '关闭压缩')
+        .option('--clean', 'build 模式下清除对应目录下文件多余文件');
+
+    program
+        .command('build [dir]')
+        .description(     '生成指定文件'
+        +`\n               只生成指定文件: ${myName} build js/test.js`
+        +`\n               生成指定文件夹: ${myName} build [js|css|page|i18n]`
+        +`\n                   例: ${myName} build js`
+        +`\n                   例: ${myName} build css/test/`
+        )
+        .action((dir) => {
+            isDevelop = !!program.dev;
+            isCompress = !program.nocompress;
+            if (dir)dir = dir.trim().replace(/[\/|\\]+$/, '').replace(/^[\/|\\]+/, '');
+            let from = SRC_DIR + (dir ? dir : '');
+            let to   = OUT_DIR + (dir ? dir : '');
+            if (!fs.existsSync(from)) {
+                console.log('指定的文件或目录不存在: ' + from);
+                return;
+            }
+            let isDir;
+            if (fs.lstatSync(from).isDirectory()) {
+                if (dir) {
+                    from += '/';
+                    to += '/';
+                }
+                isDir = true;
+            }
+            else {
+                isDir = false;
+            }
+
+            const opt = {
+                compress: isCompress,
+                dev : isDevelop,
+            };
+
+            if (isDir) {
+                console.log('now loading files...');
+                if (program.clean) {
+                    // 清理文件
+                    if (fs.existsSync(to)) {
+                        console.log(`    \x1b[33mclean: ${to}\x1b[0m`);
+                        cleanDir(to);
+                    }
+                    if (!dir) {
+                        // 清空hash
+                        assetsHash = {};
+                    }
+                    else {
+                        // 移除当前目录下所有的hash
+                        Object.keys(assetsHash).forEach((key) => {
+                            if (key.substr(0, dir.length) === dir) {
+                                delete assetsHash[key];
+                            }
+                        });
+                    }
+                }
+                let tick = null;
+                opt.done = (result) => {
+                    if (isXdAppAssetFile(result.out)) {
+                        setXdAppAssetFileHash(result.out, result.hash || md5(result.content), true);
+                        if (tick) {
+                            clearTimeout(tick);
+                            tick = null;
+                        }
+                        tick = setTimeout(() => {
+                            tick = null;
+                            saveXdAppAssetHashFile();
+                        }, 200);
+                    }
+                };
+                buildDir(from, to, opt);
+            }
+            else {
+                buildFile(from, getOutExtFileName(to), opt);
+            }
+        });
+    program
+        .command('watch')
+        .description('监听项目文件修改')
+        .action(() => {
+            isDevelop = !!program.dev;
+            isCompress = !program.nocompress;
+
+            const opt = {
+                compress: isCompress,
+                dev : isDevelop,
+            };
+            watchProject(opt);
+        });
+    program.parse(process.argv);
+
+    if (process.argv.length < 3) {
+        program.help();
+        return;
+    }
+}
+
+function buildDir(fromDir, toDir, opt = {}) {
+    fs.readdir(fromDir, (err, files) => {
+        if (err) {
+            console.log(err);
+            return;
+        }
+        files.forEach((tmp) => {
+            if (tmp[0] === '_' || tmp[0] === '.')return;
+            const pathFrom = fromDir + tmp;
+            const pathTo = toDir + tmp;
+            if (!fs.existsSync(toDir)) {
+                // 创建目录
+                fs.mkdirSync(toDir, 0o755);
+            }
+            fs.lstat(pathFrom, (err, stat) => {
+                if (stat.isDirectory()) {
+                    buildDir(pathFrom + '/', pathTo + '/', opt);
+                }
+                else {
+                    const pathToExt = getOutExtFileName(pathTo);
+                    if (opt.onlyMissFile && fs.existsSync(pathToExt)) {
+                        // 只更新遗漏的文件
+                        return;
+                    }
+                    if (isDevelop)console.log(`    load ${pathFrom}`);
+                    buildFile(pathFrom, pathToExt, opt);
+                }
+            });
+        });
+    });
+}
+
+function buildFile(from, to, opt = {}) {
+    const ext = path.extname(from);
+    switch (ext) {
+        case '.js':
+            buildJsFile(from, to, opt);
+            break;
+
+        case '.vue':
+        case '.tpl':
+            buildVueFile(from, to, opt);
+            break;
+
+        case '.i18n':
+        case '.yml':
+        case '.yaml':
+            buildYamlFile(from, to, opt);
+            break;
+
+        case '.css':
+        case '.scss':
+        case '.sass':
+            buildScssFile(from, to, opt);
+            break;
+
+        default:
+            console.log("未知文件类型: " + from);
+            break;
+    }
+}
+
+function watchProject(opt) {
+    let tick;
+    const watch = require('./ToolsWatchDir');
+    const handle = function (err, lists) {
+        if (err) {
+            console.error(err);
+            if (opt.error)opt.error(err);
+            return;
+        }
+        lists.forEach((item) => {
+            let file = item.file,
+                out = getAssetsOutFileName(file),
+                fileName = path.basename(file)
+            ;
+            if (fileName[0] === '.' || fileName[0] === '_') {
+                // 忽略这些文件
+                return;
+            }
+            switch (item.type) {
+                case 'change':
+                case 'add':
+                    const outDir = path.dirname(out);
+                    if (!fs.existsSync(outDir)) {
+                        // 创建目录
+                        mkDir(outDir);
+                    }
+                    buildFile(file, out, Object.assign({
+                            compress: isCompress,
+                            dev: isDevelop,
+                        }, opt, {
+                        done: (result) => {
+                            if (isXdAppAssetFile(out)) {
+                                if (tick) {
+                                    clearTimeout(tick);
+                                    tick = null;
+                                }
+                                tick = setTimeout(function () {
+                                    setXdAppAssetFileHash(out, item.hash);
+                                }, 200);
+                            }
+                            if (opt.done)opt.done(Object.assign({}, item, result));
+                        }
+                    }));
+                    break;
+                case 'delete':
+                    removeFile(file, out);
+                    if (opt.done)opt.done(Object.assign({}, item, {out: out}));
+                    break;
+            }
+        });
+    };
+
+    const hashList = watch.getFileHash();
+    const noFoundFiles = [];
+    for (let k in assetsHash) {
+        let path = `${SRC_DIR}${k}`.replace(/\.vue\.js$/, '.vue').replace(/\.json$/, '.yml').replace(/\.css$/, '.scss');
+        if (fs.existsSync(path)) {
+            hashList[path] = assetsHash[k];
+        }
+        else {
+            noFoundFiles.push(k);
+        }
+    }
+    if (noFoundFiles.length) {
+        // 清理数据
+        noFoundFiles.forEach((path) => {
+            delete assetsHash[path];
+        });
+        saveXdAppAssetHashFile();
+    }
+
+    watch(SRC_DIR, handle, {notLoadHash: true});
+
+    if (isDevelop) {
+        console.log(`    watch directory ${SRC_DIR}`)
+    }
+}
+
+function saveXdAppAssetHashFile() {
+    assetsHash = ksortRecursive(assetsHash);
+    fs.writeFileSync(HASH_FILE, JSON.stringify(assetsHash, null, 2).replace(/\n[ ]+/g, '\n'));
+    if (isDevelop) {
+        console.log(`    update hash file ${HASH_FILE}`);
+    }
+}
+
+function isXdAppAssetFile(outFile) {
+    return outFile.substr(0, OUT_DIR.length) === OUT_DIR;
+}
+
+function setXdAppAssetFileHash(outFile, hash, noSave = false) {
+    const uri = outFile.substr(OUT_DIR.length);
+    if (assetsHash[uri] !== hash) {
+        if (!hash) {
+            delete assetsHash[uri];
+        }
+        else {
+            assetsHash[uri] = hash;
+        }
+
+        if (!noSave)saveXdAppAssetHashFile();
+    }
+}
+
+function buildVueFile(from, out, opt) {
+    fs.readFile(from, {encoding: 'utf-8'}, (err, content) => {
+        if (err) {
+            console.error(err);
+            if (opt.error) opt.error(err);
+            return;
+        }
+        const start = new Date().getTime();
+        // 解析VUE组件
+        compilerVue.setSassOption('outputStyle', 'compact');
+        compilerVue.compile(content, from.substr(BASE_DIR.length), (err, contentVue) => {
+            if (err) {
+                console.log(`    \x1b[31merror: ${from}\x1b[0m`);
+                console.error(err);
+                if (opt.error)opt.error(err);
+                return;
+            }
+            const rs = buildJsContent(contentVue, {
+                compress: opt.compress,
+                fileName: path.basename(from) + '.js',
+            });
+            if (rs.error) {
+                console.log(`    \x1b[31merror: ${from}\x1b[0m`);
+                console.error(rs.error);
+                if (opt.error)opt.error(rs.error);
+                return;
+            }
+            fs.writeFile(out, rs.code, (err) => {
+                if (err) {
+                    console.log(`    \x1b[31merror: ${out}\x1b[0m`);
+                    console.error(err);
+                    if (opt.error)opt.error(err);
+                    return;
+                }
+                // 写入map内容
+                if (rs.map)fs.writeFile(`${out}.map`, rs.map, (err) => {
+                    if (err) {
+                        console.log(`    \x1b[31merror: ${out}.map\x1b[0m`);
+                        console.error(err);
+                        return;
+                    }
+                    if (opt.dev) {
+                        console.log(`    \x1b[34mwrite ${relativePath(out)}.map\x1b[0m`);
+                    }
+                });
+                if (opt.done)opt.done({
+                    file: from,
+                    out: out,
+                    content: content,
+                    contentOut: rs.code
+                });
+
+                console.log(`    \x1b[32mwrite ${relativePath(out)}, time: ${new Date().getTime() - start}ms\x1b[0m`);
+            });
+        });
+    });
+}
+
+function buildScssFile(from, out, opt) {
+    fs.readFile(from, {encoding: 'utf-8'}, (err, content) => {
+        const start = new Date().getTime();
+        sass.render({
+            file: path.basename(from),
+            data: content,
+            outputStyle: opt.compress ? 'compressed' : 'compact',
+            includePaths: [
+                `${SRC_DIR}css`
+            ],
+            sourceMap: `${path.basename(out)}.map`,
+            sourceMapContents: true,
+        }, (err, result) => {
+            if (err) {
+                console.log(`    \x1b[31merror ${from}\x1b[0m`);
+                console.error(err);
+                if (opt.error)opt.error(err);
+                return;
+            }
+            fs.writeFile(out, result.css, function(err) {
+                if (err) {
+                    console.log(`    \x1b[31merror ${out}\x1b[0m`);
+                    console.error(err);
+                    if (opt.error)opt.error(err);
+                    return;
+                }
+                if (result.map) {
+                    fs.writeFile(`${out}.map`, result.map, function (err) {
+                        if (err) {
+                            console.log(`    \x1b[31merror: ${relativePath(out)}.map\x1b[0m`);
+                            console.error(err);
+                            return;
+                        }
+                        if (opt.dev) {
+                            console.log(`    \x1b[34mwrite ${relativePath(out)}.map\x1b[0m`);
+                        }
+                    });
+                }
+                if (opt.done)opt.done({
+                    file: from,
+                    out: out,
+                    content: content,
+                    contentOut: result.css
+                });
+                console.log(`    \x1b[32mwrite ${relativePath(out)}, time: ${new Date().getTime() - start}ms\x1b[0m`);
+            });
+        });
+    });
+}
+
+function buildYamlFile(from, out, opt = {}) {
+    fs.readFile(from, {encoding: 'utf-8'}, (err, content) => {
+        if (err) {
+            console.error(err);
+            if (opt.error)opt.error(err);
+            return;
+        }
+        try {
+            const start = new Date().getTime();
+            let data = YAML.parse(content);
+            data = ksortRecursive(data);
+            let str = JSON.stringify(data, null, 2);
+            if (opt.compress)str = str.replace(/\n[ ]+/g, '\n');
+            fs.writeFile(out, str, (err) => {
+                if (err) {
+                    console.log(`    \x1b[31merror ${out}\x1b[0m`);
+                    console.error(err);
+                    if (opt.error)opt.error(err);
+                    return;
+                }
+                if (opt.done)opt.done({
+                    file: from,
+                    out: out,
+                    content: content,
+                    contentOut: str,
+                });
+                console.log(`    \x1b[32mwrite ${relativePath(out)}, time: ${new Date().getTime() - start}ms\x1b[0m`);
+            });
+        }
+        catch (err) {
+            console.log(`    \x1b[31merror ${from}\x1b[0m`);
+            console.error(err);
+        }
+    });
+}
+
+function buildJsFile(from, out, opt = {}) {
+    fs.readFile(from, {encoding: 'utf-8'}, (err, content) => {
+        if (err) {
+            console.log(`    \x1b[31merror ${from}\x1b[0m`);
+            console.error(err);
+            if (opt.error)opt.error(err);
+            return;
+        }
+        const start = new Date().getTime();
+        const rs = buildJsContent(content, Object.assign({}, opt, {fileName: path.basename(from)}));
+        if (rs.error) {
+            console.log(`    \x1b[31merror ${from}\x1b[0m`);
+            console.error(rs.error);
+            if (opt.error)opt.error(rs.error);
+            return;
+        }
+        fs.writeFile(out, rs.code, (err) => {
+            if (err) {
+                console.log(`    \x1b[31merror ${out}\x1b[0m`);
+                console.error(err);
+                if (opt.error)opt.error(err);
+                return;
+            }
+            // 写入map内容
+            if (rs.map)fs.writeFile(`${out}.map`, rs.map, (err) => {
+                if (err) {
+                    console.log(`    \x1b[31merror: ${out}.map\x1b[0m`);
+                    console.error(err);
+                    return;
+                }
+                if (opt.dev) {
+                    console.log(`    \x1b[34mwrite ${relativePath(out)}.map\x1b[0m`);
+                }
+            });
+            if (opt.done)opt.done({
+                file: from,
+                out: out,
+                content: content,
+                contentOut: rs.code
+            });
+            console.log(`    \x1b[32mwrite ${relativePath(out)}, time: ${new Date().getTime() - start}ms\x1b[0m`);
+        });
+    });
+}
+
+function removeFile(file, out = null) {
+    out = out || getAssetsOutFileName(file);
+    if (fs.existsSync(out)) {
+        fs.unlinkSync(out);
+    }
+    if (fs.existsSync(out + '.map')) {
+        fs.unlinkSync(out + '.map');
+    }
+    const dir = path.dirname(out);
+    fs.readdir(dir, (err, lists) => {
+        if (err)return;
+        if (lists.length === 0) {
+            // 目录下没文件了
+            fs.rmdirSync(dir);
+        }
+    });
+    console.log(`    \x1b[32mremove ${out}\x1b[0m`);
+
+    if (isXdAppAssetFile(out)) {
+        setXdAppAssetFileHash(out, undefined);
+    }
+}
+
+function getAssetsOutFileName(srcFile) {
+    const dir = srcFile.substr(SRC_DIR.length),
+        out = OUT_DIR + dir
+    ;
+    return getOutExtFileName(out);
+}
+
+function getOutExtFileName(out) {
+    const ext = path.extname(out);
+    switch (ext) {
+        case '.i18n':
+        case '.yml':
+        case '.yaml':
+            return out.replace(/\.(i18n|yaml|yml)$/i, '.json');
+
+        case '.scss':
+        case '.sass':
+            return out.replace(/\.(scss|sass)$/i, '.css');
+
+        case '.vue':
+        case '.page':
+        case '.tpl':
+            return `${out}.js`;
+    }
+    return out
+}
+
+function minifyJs(content, fileName) {
+    const code = {};
+    code[fileName] = content;
+    return UglifyJS.minify(code, {
+        sourceMap: {
+            includeSources: true,
+            filename: fileName,
+            url: `./${fileName}.map`
+        }
+    });
+}
+
+function buildJsContent(content, opt = {}) {
+    if (content.indexOf('export ') !== -1 || content.indexOf('import ') !== -1) {
+        try {
+            // 使用 typescript 处理模块编译
+            let rsTs = compileTypescript(content);
+            if (opt.compress) {
+                // 处理压缩
+                return minifyJs(rsTs.outputText, opt.fileName);
+            }
+            else {
+                // 不需要压缩
+                return {
+                    code: rsTs.outputText,
+                    map: '',
+                };
+            }
+        }
+        catch (err) {
+            return {
+                error : err,
+            }
+        }
+    }
+    else if (opt.compress) {
+        // 处理压缩
+        return minifyJs(content, opt.fileName);
+    }
+    else {
+        return {
+            code: content,
+            map: '',
+        };
+    }
+}
+
+let typeScript;
+function compileTypescript(content) {
+    // {outputText: '...', diagnostics: [], sourceMapText: '...'}
+    if (!typeScript)typeScript = require('typescript');
+    return typeScript.transpileModule(content, {
+        compilerOptions: {
+            module: typeScript.ModuleKind.AMD,
+            jsx: typeScript.JsxEmit.React,
+            sourceMap: false,
+            noEmitHelpers: true,        // 不输出辅助代码
+        }
+    });
+}
+
+function md5(str) {
+    return crypto.createHash('md5').update(str).digest('hex');
+}
+
+function ksortRecursive(obj) {
+    const isArr = obj instanceof Array;
+    if (isArr) {
+        obj.sort();
+        obj.forEach((item, index) => {
+            if (item instanceof Object) {
+                obj[index] = ksortRecursive(obj);
+            }
+        });
+        return;
+    }
+    let keys = Object.keys(obj);
+    let len = keys.length;
+    let rs = {};
+    let i;
+    keys.sort();
+    for (i = 0; i < len; i++) {
+        let key = keys[i];
+        if(obj[key] instanceof Object) {
+            rs[key] = ksortRecursive(obj[key]);
+        }
+        else {
+            rs[key] = obj[key];
+        }
+    }
+    return rs;
+}
+
+function mkDir(dir) {
+    let rs = true;
+    dir.substr(BASE_DIR.length).split('/').reduce((currentPath, folder) => {
+        currentPath += folder + '/';
+        let currentFullPath = BASE_DIR + currentPath;
+        if (!fs.existsSync(currentFullPath)) {
+            rs = fs.mkdirSync(currentFullPath, 0o755);
+        }
+        return currentPath;
+    }, '');
+    return rs;
+}
+
+function rmDir(dir) {
+    dir = dir.replace(/[\/|\\]+$/, '');
+    fs.readdirSync(dir).forEach((fileName) => {
+        const path = dir + '/' + fileName;
+        if (fs.lstatSync(path).isDirectory()) {
+            rmDir(path);
+        }
+        else {
+            fs.unlinkSync(path);
+        }
+    });
+    fs.rmdirSync(dir);
+}
+
+function cleanDir(dir) {
+    dir = dir.replace(/[\/|\\]+$/, '');
+    fs.readdirSync(dir).forEach((fileName) => {
+        const path = dir + '/' + fileName;
+        if (fs.lstatSync(path).isDirectory()) {
+            rmDir(path);
+        }
+        else {
+            fs.unlinkSync(path);
+        }
+    });
+}
+
+function relativePath(path) {
+    return path.substr(BASE_DIR.length);
+}

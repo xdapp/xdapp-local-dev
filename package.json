@@ -1,0 +1,25 @@
+{
+  "name": "xdapp-sdk",
+  "version": "1.0.0",
+  "description": "xdapp assets server",
+  "private": true,
+  "scripts": {
+    "start": "./bin/Server",
+    "dev": "./bin/Server --dev",
+    "build": "./bin/ToolsAssets build"
+  },
+  "dependencies": {
+    "commander": "^2.16.0",
+    "hprose": "github:hprose/hprose-nodejs#master",
+    "node-sass": "^4.11.0",
+    "typescript": "^3.0.1",
+    "uglify-es": "^3.3.9",
+    "vue-template-compiler": "^2.5.17",
+    "vue-template-es2015-compiler": "^1.6.0",
+    "vueify": "^9.4.1",
+    "yaml": "^1.0.0-rc.7"
+  },
+  "devDependencies": {
+    "socket.io": "^2.1.1"
+  }
+}
