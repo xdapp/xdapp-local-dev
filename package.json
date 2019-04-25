@@ -1,11 +1,17 @@
 {
-  "name": "xdapp-sdk",
-  "version": "1.0.0",
-  "description": "xdapp assets server",
+  "name": "xdapp-ui",
+  "version": "1.0.1",
+  "description": "XDApp console ui",
   "private": true,
   "scripts": {
     "start": "./bin/Server",
     "dev": "./bin/Server --dev",
+    "deploy": "./bin/ToolsAssets deploy",
+    "deploy-dev": "./bin/ToolsAssets deploy --origin=https://dev-assets.xdapp.com",
+    "diff": "./bin/ToolsAssets diff",
+    "diff-dev": "./bin/ToolsAssets diff --origin=https://dev-assets.xdapp.com",
+    "down": "./bin/ToolsAssets down",
+    "down-dev": "./bin/ToolsAssets down --origin=https://dev-assets.xdapp.com",
     "build": "./bin/ToolsAssets build"
   },
   "dependencies": {

@@ -11,11 +11,12 @@ const compilerVue = require('./compiler-vue');
 // 根目录
 const BASE_DIR  = path.resolve(__dirname + '/../') + '/';
 const SRC_DIR   = `${BASE_DIR}src/`;
-const VERSION   = 'app';
+const VERSION   = 'apps';
 const OUT_DIR   = `${BASE_DIR}webroot/${VERSION}/`;
 const HASH_FILE = `${OUT_DIR}assets-hash.json`;
 
 let assetsHash = fs.existsSync(HASH_FILE) ? JSON.parse(fs.readFileSync(HASH_FILE)) : {};
+let assetsHashTime = new Date().getTime();
 let isDevelop  = false;
 let isCompress = true;
 
@@ -36,32 +37,40 @@ if (process.argv[1] !== __filename) {
 
             let tick = null;
             opt.done = (result) => {
-                if (isXdAppAssetFile(result.out)) {
-                    setXdAppAssetFileHash(result.out, result.hash || md5(result.content), true);
+                if (isAssetFile(result.out)) {
+                    setAssetFileHash(result.out, result.hash || md5(result.content), true);
                     if (tick) {
                         clearTimeout(tick);
                         tick = null;
                     }
                     tick = setTimeout(() => {
                         tick = null;
-                        saveXdAppAssetHashFile();
+                        saveAssetHashFile();
                     }, 200);
                 }
             };
             buildDir(from, to, opt);
         },
         watchProject,
-        setDevelop: function (status) {
+        setDevelop: (status) => {
             isDevelop = status;
         },
-        setCompress: function (status) {
+        setCompress: (status) => {
             isCompress = status;
         },
         getAssetsHashFile() {
             return HASH_FILE;
         },
-        ksortRecursive: ksortRecursive,
-        isXdAppAssetFile: isXdAppAssetFile,
+        isAssetFile: isAssetFile,
+        getAssetVersion: () => {
+            return VERSION;
+        },
+        getAssetsHash: () => {
+            return assetsHash;
+        },
+        getAssetsHashTime: () => {
+            return assetsHashTime;
+        },
     };
 }
 else {
@@ -69,18 +78,21 @@ else {
     const myName = __filename.split(path.sep).pop();
     program
         .version('1.1')
-        .usage('watch|build [options]')
+        .usage('watch|build|deploy [options]')
         .option('--dev', '研发模式')
+        .option('--nomap', '不输出map')
         .option('--nocompress', '关闭压缩')
-        .option('--clean', 'build 模式下清除对应目录下文件多余文件');
+        .option('--origin <string>', 'down|deploy|diff 可用, 发布到服务器, 默认 https://assets.xdapp.com')
+        .option('-c, --config <string>', 'down|deploy|diff 可用, 配置文件，默认根目录的 assets-deploy.json 文件')
+        .option('--clean', 'build|down|deploy 可用, 清除目录下文件多余文件');
 
     program
         .command('build [dir]')
-        .description(     '生成指定文件'
-        +`\n               只生成指定文件: ${myName} build js/test.js`
-        +`\n               生成指定文件夹: ${myName} build [js|css|page|i18n]`
-        +`\n                   例: ${myName} build js`
-        +`\n                   例: ${myName} build css/test/`
+        .description(       '生成指定文件'
+        +`\n                       只生成指定文件: ${myName} build js/test.js`
+        +`\n                       生成指定文件夹: ${myName} build [js|css|page|i18n]`
+        +`\n                         例: ${myName} build js`
+        +`\n                         例: ${myName} build css/test/`
         )
         .action((dir) => {
             isDevelop = !!program.dev;
@@ -107,6 +119,7 @@ else {
             const opt = {
                 compress: isCompress,
                 dev : isDevelop,
+                noMap : !!program.nomap,
             };
 
             if (isDir) {
@@ -132,15 +145,15 @@ else {
                 }
                 let tick = null;
                 opt.done = (result) => {
-                    if (isXdAppAssetFile(result.out)) {
-                        setXdAppAssetFileHash(result.out, result.hash || md5(result.content), true);
+                    if (isAssetFile(result.out)) {
+                        setAssetFileHash(result.out, result.hash || md5(result.content), true);
                         if (tick) {
                             clearTimeout(tick);
                             tick = null;
                         }
                         tick = setTimeout(() => {
                             tick = null;
-                            saveXdAppAssetHashFile();
+                            saveAssetHashFile();
                         }, 200);
                     }
                 };
@@ -159,9 +172,80 @@ else {
 
             const opt = {
                 compress: isCompress,
+                noMap: !!program.nomap,
                 dev : isDevelop,
             };
             watchProject(opt);
+        });
+    program
+        .command('deploy [dir]')
+        .description('部署文件到服务器'
+            +'\n                       加 --clean 清除服务器目录下多余文件'
+            +`\n                         例: ${myName} deploy`
+            +`\n                         例: ${myName} deploy --dev`
+            +`\n                         例: ${myName} deploy page/test.vue`
+        )
+        .action((dir) => {
+            isDevelop = !!program.dev;
+            isCompress = !program.nocompress;
+
+            const opt = {
+                compress: isCompress,
+                noMap: !!program.nomap,
+                dev : isDevelop,
+                origin: program.origin,
+                clean: program.clean
+            };
+            deployDir(dir, opt);
+        });
+    program
+        .command('down [dir]')
+        .description('下载远程文件到本地, 参数同deploy'
+            +'\n                       加 --clean 清除本地目录下多余文件'
+            +`\n                         例: ${myName} down`
+        )
+        .action((dir) => {
+            isDevelop = !!program.dev;
+            isCompress = !program.nocompress;
+
+            const opt = {
+                compress: isCompress,
+                noMap: !!program.nomap,
+                dev : isDevelop,
+                origin: program.origin
+            };
+            downloadDir(dir, opt);
+        });
+    program
+        .command('diff [dir]')
+        .description('检查本地和远程差异的文件, 参数同deploy\n')
+        .action((dir) => {
+            isDevelop = !!program.dev;
+            isCompress = !program.nocompress;
+
+            const opt = {
+                compress: isCompress,
+                dev : isDevelop,
+                noMap: !!program.nomap,
+                origin: program.origin,
+                config: program.c || program.config || null,
+                done: (list) => {
+                    const diff = list[0];
+                    const miss = list[1];
+                    let i;
+                    if (diff) {
+                        for(i = 0; i < diff.length; i++) {
+                            console.log(`    \x1b[36mdiff:\x1b[0m ${diff[i]}`);
+                        }
+                    }
+                    if (miss) {
+                        for(i = 0; i < miss.length; i++) {
+                            console.log(`    \x1b[31mmiss:\x1b[0m ${miss[i]}`);
+                        }
+                    }
+                }
+            };
+            checkDirDiff(dir, opt);
         });
     program.parse(process.argv);
 
@@ -233,6 +317,218 @@ function buildFile(from, to, opt = {}) {
     }
 }
 
+/**
+ * 部署一个目录到服务器
+ * @param dir
+ * @param opt
+ */
+function deployDir(dir, opt) {
+    const oldDone = opt.done;
+    const oldError = opt.error;
+    const conf = getAssetsDeployConfig(opt.config);
+    if (!conf)return false;
+
+    if (conf.origin && !opt.origin) {
+        opt.origin = conf.origin;
+    }
+    optOriginCheck(opt);
+
+    opt.done = (list) => {
+        const diff = list[0],
+            miss = list[1],
+            job = [],
+            postDone = () => {
+                doing--;
+                if (doing === 0) {
+                    console.log('    job done');
+                }
+                else {
+                    const myJob = job.shift();
+                    if (myJob) addJob(myJob);
+                }
+            },
+            addJob = (myJob) => {
+                if (doing >= 10) {
+                    job.push(myJob);
+                }
+                else {
+                    doing++;
+                    httpPost.apply(this, myJob);
+                }
+            }
+        ;
+        console.log(`    Found ${diff.length} diff file(s), ${miss.length} miss file(s).`);
+        let doing = 0,
+            content,
+            time,
+            hash,
+            sign,
+            url
+        ;
+        if (diff.length > 0) {
+            for (let i = 0; i < diff.length; i++) {
+                let file1 = diff[i];
+                let myOpt1 = {
+                    done: () => {
+                        console.log(`    \x1b[32mUpdate done: ${file1}\x1b[0m`);
+                        postDone();
+                        if (oldDone)oldDone(file1);
+                    },
+                    error: () => {
+                        console.log(`    \x1b[31mUpdate fail: ${file1}\x1b[0m`);
+                        postDone();
+                        if (oldError)oldError(file1);
+                    }
+                };
+                content = fs.readFileSync(SRC_DIR + file1);
+                time    = parseInt(new Date().getTime() / 1000);
+                hash    = md5(content);
+                sign    = md5(`${time}.${file1}.${hash}.${conf.token}.${conf.user}`);
+                url     = `${opt.origin}/up/${conf.app}/${file1}?time=${time}&sign=${sign}&user=${conf.user}&hash=${hash}`;
+                addJob([url, content, myOpt1]);
+            }
+        }
+        if (opt.clean && miss.length > 0) {
+            for (let i = 0; i < miss.length; i++) {
+                let file2 = miss[i];
+                let myOpt2 = {
+                    done: () => {
+                        console.log(`    \x1b[32mDelete done: ${file2}\x1b[0m`);
+                        postDone();
+                        if (oldDone)oldDone(file2);
+                    },
+                    error: () => {
+                        console.log(`    \x1b[31mDelete fail ${file2}\x1b[0m`);
+                        postDone();
+                        if (oldError)oldError(file2);
+                    }
+                };
+                time = parseInt(new Date().getTime() / 1000);
+                sign = md5(`${time}.${file2}.${conf.token}.${conf.user}`);
+                url  = `${opt.origin}/rm/${conf.app}/${file2}?time=${time}&user=${conf.user}&sign=${sign}`;
+                addJob([url, '', myOpt2]);
+            }
+        }
+    };
+
+    checkDirDiff(dir, opt);
+}
+
+/**
+ * 检查服务器目录文件差异
+ * @param dir
+ * @param opt
+ */
+function checkDirDiff(dir, opt) {
+    if (dir)dir = dir.trim().replace(/[\/|\\]+$/, '').replace(/^[\/|\\]+/, '');
+    let from = SRC_DIR + (dir ? dir : ''), list;
+    if (!fs.existsSync(from)) {
+        list = [];
+    }
+    else if (fs.lstatSync(from).isDirectory()) {
+        if (dir) {
+            from += '/';
+        }
+        list = listDirFiles(from);
+    }
+    else {
+        list = [from];
+    }
+
+    const fileHash = {};
+    for (let i = 0; i < list.length; i++) {
+        let ext = path.extname(list[i]);
+        switch (ext) {
+            case '.vue':
+            case '.yml':
+            case '.js':
+                fileHash[list[i].substr(SRC_DIR.length)] = fileMd5(list[i]);
+                break;
+        }
+    }
+    const conf = getAssetsDeployConfig(opt.config);
+
+    if (!conf)return false;
+
+    if (conf.origin && !opt.origin) {
+        opt.origin = conf.origin;
+    }
+    optOriginCheck(opt);
+
+    const listStr = JSON.stringify(fileHash);
+    const time = parseInt(new Date().getTime() / 1000);
+    const sign = md5(`${time}.${listStr}.${conf.token}.${conf.user}`);
+    const url  = `${opt.origin}/check/${conf.app}?time=${time}&user=${conf.user}&sign=${sign}`;
+    const postData = require('querystring').stringify({list: listStr});
+
+    console.log(`    Check from: ${opt.origin}`);
+    httpPost(url, postData, opt);
+}
+
+function httpPost(url, postData, opt) {
+    const options   = require('url').parse(url);
+    options.method  = 'POST';
+    options.headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData)
+    };
+
+    const req = require(options.protocol === 'https:' ? 'https' : 'http').request(options, (res) => {
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+            const rs = JSON.parse(chunk);
+            if (rs) {
+                if (rs.status === 'error') {
+                    console.log(rs.msg);
+                    if (opt.error)opt.error(rs.msg);
+                    return null;
+                }
+                else {
+                    if (opt.done)opt.done(rs.list);
+                }
+            }
+            else {
+                const err = `解析服务器返回失败: ${rs.status}`;
+                console.log(err);
+                if (opt.error)opt.error(err);
+            }
+        });
+    });
+    req.on('error', (e) => {
+        console.error(`problem with request: ${e.message}`);
+        if (opt.error)opt.error(e);
+    });
+
+    req.write(postData);
+    req.end();
+}
+
+function optOriginCheck(opt) {
+    if (opt.origin) {
+        opt.origin = opt.origin.replace(/[\/]+$/, '');  // 将结尾的/移除
+    }
+    if (!opt.origin) {
+        opt.origin = opt.dev ? 'https://dev-assets.xdapp.com' : 'https://assets.xdapp.com';
+    }
+}
+
+function getAssetsDeployConfig(file) {
+    file = file || BASE_DIR + 'deploy.json';
+
+    if (!fs.existsSync(file)) {
+        console.log("部署配置文件不存在: " + file);
+        return false;
+    }
+
+    const conf = JSON.parse(fs.readFileSync(file));
+    if (!conf) {
+        console.log("解析配置文件失败：" + file);
+        return false;
+    }
+
+    return conf;
+}
+
 function watchProject(opt) {
     let tick;
     const watch = require('./ToolsWatchDir');
@@ -262,15 +558,16 @@ function watchProject(opt) {
                     buildFile(file, out, Object.assign({
                             compress: isCompress,
                             dev: isDevelop,
+                            noMap: opt.noMap,
                         }, opt, {
                         done: (result) => {
-                            if (isXdAppAssetFile(out)) {
+                            if (isAssetFile(out)) {
                                 if (tick) {
                                     clearTimeout(tick);
                                     tick = null;
                                 }
                                 tick = setTimeout(function () {
-                                    setXdAppAssetFileHash(out, item.hash);
+                                    setAssetFileHash(out, item.hash);
                                 }, 200);
                             }
                             if (opt.done)opt.done(Object.assign({}, item, result));
@@ -301,7 +598,7 @@ function watchProject(opt) {
         noFoundFiles.forEach((path) => {
             delete assetsHash[path];
         });
-        saveXdAppAssetHashFile();
+        saveAssetHashFile();
     }
 
     watch(SRC_DIR, handle, {notLoadHash: true});
@@ -311,7 +608,8 @@ function watchProject(opt) {
     }
 }
 
-function saveXdAppAssetHashFile() {
+function saveAssetHashFile() {
+    assetsHashTime = new Date().getTime();
     assetsHash = ksortRecursive(assetsHash);
     fs.writeFileSync(HASH_FILE, JSON.stringify(assetsHash, null, 2).replace(/\n[ ]+/g, '\n'));
     if (isDevelop) {
@@ -319,12 +617,16 @@ function saveXdAppAssetHashFile() {
     }
 }
 
-function isXdAppAssetFile(outFile) {
+function isAssetFile(outFile) {
     return outFile.substr(0, OUT_DIR.length) === OUT_DIR;
 }
 
-function setXdAppAssetFileHash(outFile, hash, noSave = false) {
+function setAssetFileHash(outFile, hash, noSave = false) {
     const uri = outFile.substr(OUT_DIR.length);
+    if (typeof hash === 'string') {
+        // 使用短hash
+        hash = hash.substr(0, 7);
+    }
     if (assetsHash[uri] !== hash) {
         if (!hash) {
             delete assetsHash[uri];
@@ -333,7 +635,7 @@ function setXdAppAssetFileHash(outFile, hash, noSave = false) {
             assetsHash[uri] = hash;
         }
 
-        if (!noSave)saveXdAppAssetHashFile();
+        if (!noSave)saveAssetHashFile();
     }
 }
 
@@ -356,6 +658,7 @@ function buildVueFile(from, out, opt) {
             }
             const rs = buildJsContent(contentVue, {
                 compress: opt.compress,
+                noMap: opt.noMap,
                 fileName: path.basename(from) + '.js',
             });
             if (rs.error) {
@@ -372,7 +675,7 @@ function buildVueFile(from, out, opt) {
                     return;
                 }
                 // 写入map内容
-                if (rs.map)fs.writeFile(`${out}.map`, rs.map, (err) => {
+                if (!opt.noMap && rs.map)fs.writeFile(`${out}.map`, rs.map, (err) => {
                     if (err) {
                         console.log(`    \x1b[31merror: ${out}.map\x1b[0m`);
                         console.error(err);
@@ -398,16 +701,19 @@ function buildVueFile(from, out, opt) {
 function buildScssFile(from, out, opt) {
     fs.readFile(from, {encoding: 'utf-8'}, (err, content) => {
         const start = new Date().getTime();
-        sass.render({
+        let opts = {
             file: path.basename(from),
             data: content,
             outputStyle: opt.compress ? 'compressed' : 'compact',
             includePaths: [
                 `${SRC_DIR}css`
             ],
-            sourceMap: `${path.basename(out)}.map`,
-            sourceMapContents: true,
-        }, (err, result) => {
+        };
+        if (!opt.noMap) {
+            opts.sourceMap = `${path.basename(out)}.map`;
+            opts.sourceMapContents = true;
+        }
+        sass.render(opts, (err, result) => {
             if (err) {
                 console.log(`    \x1b[31merror ${from}\x1b[0m`);
                 console.error(err);
@@ -421,7 +727,7 @@ function buildScssFile(from, out, opt) {
                     if (opt.error)opt.error(err);
                     return;
                 }
-                if (result.map) {
+                if (!opt.noMap && result.map) {
                     fs.writeFile(`${out}.map`, result.map, function (err) {
                         if (err) {
                             console.log(`    \x1b[31merror: ${relativePath(out)}.map\x1b[0m`);
@@ -505,7 +811,7 @@ function buildJsFile(from, out, opt = {}) {
                 return;
             }
             // 写入map内容
-            if (rs.map)fs.writeFile(`${out}.map`, rs.map, (err) => {
+            if (!opt.noMap && rs.map)fs.writeFile(`${out}.map`, rs.map, (err) => {
                 if (err) {
                     console.log(`    \x1b[31merror: ${out}.map\x1b[0m`);
                     console.error(err);
@@ -544,8 +850,8 @@ function removeFile(file, out = null) {
     });
     console.log(`    \x1b[32mremove ${out}\x1b[0m`);
 
-    if (isXdAppAssetFile(out)) {
-        setXdAppAssetFileHash(out, undefined);
+    if (isAssetFile(out)) {
+        setAssetFileHash(out, undefined);
     }
 }
 
@@ -576,16 +882,18 @@ function getOutExtFileName(out) {
     return out
 }
 
-function minifyJs(content, fileName) {
+function minifyJs(content, fileName, noMap = false) {
     const code = {};
     code[fileName] = content;
-    return UglifyJS.minify(code, {
-        sourceMap: {
+    const opts = {};
+    if (!noMap) {
+        opts.sourceMap = {
             includeSources: true,
             filename: fileName,
             url: `./${fileName}.map`
-        }
-    });
+        };
+    }
+    return UglifyJS.minify(code, opts);
 }
 
 function buildJsContent(content, opt = {}) {
@@ -595,7 +903,7 @@ function buildJsContent(content, opt = {}) {
             let rsTs = compileTypescript(content);
             if (opt.compress) {
                 // 处理压缩
-                return minifyJs(rsTs.outputText, opt.fileName);
+                return minifyJs(rsTs.outputText, opt.fileName, opt.noMap);
             }
             else {
                 // 不需要压缩
@@ -613,7 +921,7 @@ function buildJsContent(content, opt = {}) {
     }
     else if (opt.compress) {
         // 处理压缩
-        return minifyJs(content, opt.fileName);
+        return minifyJs(content, opt.fileName, opt.noMap);
     }
     else {
         return {
@@ -639,6 +947,10 @@ function compileTypescript(content) {
 
 function md5(str) {
     return crypto.createHash('md5').update(str).digest('hex');
+}
+
+function fileMd5(file) {
+    return md5(fs.readFileSync(file));
 }
 
 function ksortRecursive(obj) {
@@ -707,6 +1019,22 @@ function cleanDir(dir) {
             fs.unlinkSync(path);
         }
     });
+}
+
+function listDirFiles(dir) {
+    let rs = [];
+    dir = dir.replace(/[\/|\\]+$/, '');
+    fs.readdirSync(dir).forEach((fileName) => {
+        if (fileName[0] === '.')return;
+        const path = dir + '/' + fileName;
+        if (fs.lstatSync(path).isDirectory()) {
+            rs = rs.concat(listDirFiles(path));
+        }
+        else {
+            rs.push(path);
+        }
+    });
+    return rs;
 }
 
 function relativePath(path) {

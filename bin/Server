@@ -8,8 +8,9 @@ const http = require('http');
 const net = require('net');
 const ToolsAssets = require('./ToolsAssets');
 const hprose = require('hprose');
-const Future = hprose.Future;
 const crypto = require('crypto');
+// const XDAppAssetUrl = 'https://dev-assets.xdapp.com/';
+const XDAppAssetUrl = 'http://0.0.0.0:8060/';
 
 program
     .version('1.0')
@@ -72,6 +73,9 @@ function outIndexPage(response) {
             }
         }, function (error, rep, body) {
             response.statusCode = rep.statusCode;
+            if (XDAppAssetUrl !== 'https://dev-assets.xdapp.com/') {
+                body = body.replace(/https:\/\/dev\-assets\.xdapp\.com\//g, XDAppAssetUrl);
+            }
             response.end(body);
 
             if (rep.statusCode === 200) {
@@ -105,9 +109,10 @@ const httpServer = http.Server((request, response) => {
         case 'dev-config.js':
             response.setHeader('Content-Type', 'text/javascript');
             response.end(
-                'window._AssetsIsDev=true;\n' +
-                'var _isXdAppAppAgentDev = true;' +
-                'var assetsUrl = "https://dev-assets.xdapp.com/";\n' +
+                'var _AssetsIsDev = true;\n' +
+                'var _devAppName = "dev";\n' +
+                'var _isXdAppAppAgentDev = true;\n' +
+                'var assetsUrl = "' + XDAppAssetUrl + '";\n' +
                 'var assetsVer = "v1";\n' +
                 'var libVersion = "1";\n' +
                 'var serviceUrl = "http://127.0.0.1:'+ (sPort+1) +'/";\n'
@@ -237,7 +242,7 @@ ToolsAssets.watchProject({
     dev : program.dev,
     done(result) {
         const out = result.out;
-        if (ToolsAssets.isXdAppAssetFile(out)) {
+        if (ToolsAssets.isAssetFile(out)) {
             // 清理hash文件缓存
             const hashFile = ToolsAssets.getAssetsHashFile();
             delete cachedFiles[hashFile];
@@ -289,6 +294,7 @@ const serverRcp = net.createServer((socket) => {
     }
 
     socket.on('data', (data) => {
+        if (program.dev)console.log('[rpc] <<< ', data.toString());
         // CFlag/CVer/NLength/NAppId/NServiceId/NRequestId/NAdminId/CContextLength
         if (data.length < 20) {
             console.log("收到一个错误RPC数据，已关闭连接");
@@ -348,6 +354,10 @@ const serverRcp = net.createServer((socket) => {
     });
     socket.on('end', () => {
         console.log('client disconnected');
+        if (RpcServices[serviceName] === socket)delete RpcServices[serviceName];
+    });
+    socket.on('error', (error, socket) => {
+        console.error(error);
         if (RpcServices[serviceName] === socket)delete RpcServices[serviceName];
     });
 
@@ -472,6 +482,8 @@ function transportToService(socket, request, callback, timeout) {
         // 加入一个回调事件
         RpcCallback['_' + request.requestId] = [callback, new Date().getTime() + 1000 * (timeout || 120)];
     }
+
+    if (program.dev)console.log('[rpc] >>> ', buf.toString());
 
     socket.write(buf);
 }

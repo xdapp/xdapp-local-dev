@@ -14,11 +14,5 @@
       "black": "https://assets.xdapp.com/images/xd-logo-white.svg"
     }
   },
-  "services": [
-    {
-      "name": "dev",
-      "version": "dev-master"
-    }
-  ],
   "status": "success"
 }

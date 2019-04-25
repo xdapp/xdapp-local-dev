@@ -14,9 +14,9 @@
       "icon": "fa fa-diagnoses",
       "href": "#",
       "subMenu": [
-        {"html": "测试页面1", "icon": "fa fa-car", "href": "app/service1/test1"},
-        {"html": "测试页面2", "icon": "", "href": "app/service1/test2"},
-        {"html": "RPC通信测试", "icon": "fa fa-rocket", "href": "app/service1/test-rpc"}
+        {"html": "测试页面1", "icon": "fa fa-car", "href": "service1/test1"},
+        {"html": "测试页面2", "icon": "", "href": "service1/test2"},
+        {"html": "RPC通信测试", "icon": "fa fa-rocket", "href": "service1/test-rpc"}
       ]
     },
     {
