@@ -9,8 +9,7 @@ const net = require('net');
 const ToolsAssets = require('./ToolsAssets');
 const hprose = require('hprose');
 const crypto = require('crypto');
-// const XDAppAssetUrl = 'https://dev-assets.xdapp.com/';
-const XDAppAssetUrl = 'http://0.0.0.0:8060/';
+const XDAppAssetUrl = 'https://dev-assets.xdapp.com/';
 
 program
     .version('1.0')
