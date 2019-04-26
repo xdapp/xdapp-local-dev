@@ -279,7 +279,7 @@ function buildDir(fromDir, toDir, opt = {}) {
                         // 只更新遗漏的文件
                         return;
                     }
-                    if (isDevelop)console.log(`    load ${pathFrom}`);
+                    if (isDevelop)console.log(`    load ${pathFrom.substr(BASE_DIR.length)}`);
                     buildFile(pathFrom, pathToExt, opt);
                 }
             });
@@ -539,40 +539,49 @@ function watchProject(opt) {
             return;
         }
         lists.forEach((item) => {
+            if (!item)return;
             let file = item.file,
                 out = getAssetsOutFileName(file),
                 fileName = path.basename(file)
             ;
-            if (fileName[0] === '.' || fileName[0] === '_') {
-                // 忽略这些文件
+            const f = fileName[0];
+            const l = fileName[fileName.length-1];
+            if (f === '.' || f === '_' || l === '~' || l === '_') {
+                // 忽略这些文件, vim 编辑会产生 ~ _ 结尾的文件
                 return;
             }
             switch (item.type) {
                 case 'change':
                 case 'add':
-                    const outDir = path.dirname(out);
-                    if (!fs.existsSync(outDir)) {
-                        // 创建目录
-                        mkDir(outDir);
-                    }
-                    buildFile(file, out, Object.assign({
-                            compress: isCompress,
-                            dev: isDevelop,
-                            noMap: opt.noMap,
-                        }, opt, {
+                    const myOpt= Object.assign({
+                        compress: isCompress,
+                        dev: isDevelop,
+                        noMap: opt.noMap,
+                    }, opt, {
                         done: (result) => {
-                            if (isAssetFile(out)) {
+                            setAssetFileHash(result.out, md5(result.content), true);
+                            if (isAssetFile(result.out)) {
                                 if (tick) {
                                     clearTimeout(tick);
                                     tick = null;
                                 }
-                                tick = setTimeout(function () {
-                                    setAssetFileHash(out, item.hash);
-                                }, 200);
+                                tick = setTimeout(saveAssetHashFile, 200);
                             }
                             if (opt.done)opt.done(Object.assign({}, item, result));
                         }
-                    }));
+                    });
+                    if (item.isDir) {
+                        // 增加了一个目录
+                        buildDir(file + '/', out + '/', myOpt);
+                    }
+                    else {
+                        const outDir = path.dirname(out);
+                        if (!fs.existsSync(outDir)) {
+                            // 创建目录
+                            mkDir(outDir);
+                        }
+                        buildFile(file, out, myOpt);
+                    }
                     break;
                 case 'delete':
                     removeFile(file, out);
@@ -613,7 +622,7 @@ function saveAssetHashFile() {
     assetsHash = ksortRecursive(assetsHash);
     fs.writeFileSync(HASH_FILE, JSON.stringify(assetsHash, null, 2).replace(/\n[ ]+/g, '\n'));
     if (isDevelop) {
-        console.log(`    update hash file ${HASH_FILE}`);
+        console.log(`    update hash: ${HASH_FILE.substr(BASE_DIR.length)}`);
     }
 }
 
@@ -834,21 +843,34 @@ function buildJsFile(from, out, opt = {}) {
 
 function removeFile(file, out = null) {
     out = out || getAssetsOutFileName(file);
-    if (fs.existsSync(out)) {
-        fs.unlinkSync(out);
-    }
-    if (fs.existsSync(out + '.map')) {
-        fs.unlinkSync(out + '.map');
-    }
-    const dir = path.dirname(out);
-    fs.readdir(dir, (err, lists) => {
-        if (err)return;
-        if (lists.length === 0) {
-            // 目录下没文件了
-            fs.rmdirSync(dir);
+    const exist = fs.existsSync(out);
+    if (exist && fs.lstatSync(out).isDirectory()) {
+        // 移除了一个文件夹
+        const list = rmDir(out);
+        if (list) {
+            list.forEach((out) => {
+                setAssetFileHash(out, undefined, true);
+            });
+            saveAssetHashFile();
         }
-    });
-    console.log(`    \x1b[32mremove ${out}\x1b[0m`);
+    }
+    else {
+        if (exist) {
+            fs.unlinkSync(out);
+        }
+        if (fs.existsSync(out + '.map')) {
+            fs.unlinkSync(out + '.map');
+        }
+        const dir = path.dirname(out);
+        fs.readdir(dir, (err, lists) => {
+            if (err) return;
+            if (lists.length === 0) {
+                // 目录下没文件了
+                fs.rmdirSync(dir);
+            }
+        });
+    }
+    console.log(`    \x1b[32mremove ${out.substr(BASE_DIR.length)}\x1b[0m`);
 
     if (isAssetFile(out)) {
         setAssetFileHash(out, undefined);
@@ -995,17 +1017,20 @@ function mkDir(dir) {
 }
 
 function rmDir(dir) {
+    const list = [];
     dir = dir.replace(/[\/|\\]+$/, '');
     fs.readdirSync(dir).forEach((fileName) => {
         const path = dir + '/' + fileName;
         if (fs.lstatSync(path).isDirectory()) {
-            rmDir(path);
+            list.concat(rmDir(path));
         }
         else {
             fs.unlinkSync(path);
+            list.push(path);
         }
     });
     fs.rmdirSync(dir);
+    return list;
 }
 
 function cleanDir(dir) {

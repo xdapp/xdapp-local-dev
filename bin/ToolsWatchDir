@@ -162,30 +162,32 @@ function unwatchSubDir(root) {
 function getCallback(root, call) {
     return function(eventType, filename) {
         if (filename) {
-            let path = root + '/' + filename;
-            try {
-                if (fs.existsSync(path)) {
-                    let stat = fs.lstatSync(path);
-                    if (stat.isDirectory()) {
-                        // 新文件夹
-                        if (osType === 'Linux') {
-                            watchSubDir(path, call);
-                        }
-                        return;
-                    }
+            const path = root + '/' + filename;
+            if (fs.existsSync(path) && fs.lstatSync(path).isDirectory()) {
+                // 新文件夹
+                if (osType === 'Linux') {
+                    watchSubDir(path, call);
                 }
-            }
-            catch (err) {
-                call(err);
-                return;
-            }
-
-            let result = getChangeType(path);
-            if (null !== result) {
-                notifyList[path] = result;
+                notifyList[path] = {
+                    type: 'add',
+                    file: path,
+                    isDir: true,
+                };
             }
             else {
-                unwatchSubDir(path);
+                let result = getChangeType(path);
+                if (null !== result) {
+                    notifyList[path] = result;
+                }
+                else {
+                    // 移除文件夹
+                    notifyList[path] = {
+                        type: 'delete',
+                        file: path,
+                        isDir: true,
+                    };
+                    unwatchSubDir(path);
+                }
             }
 
             if (!timer) {
