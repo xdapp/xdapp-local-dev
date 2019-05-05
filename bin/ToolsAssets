@@ -312,7 +312,7 @@ function buildFile(from, to, opt = {}) {
             break;
 
         default:
-            console.log("未知文件类型: " + from);
+            console.log("    ignore: " + from.substr(BASE_DIR.length));
             break;
     }
 }
@@ -805,7 +805,9 @@ function buildJsFile(from, out, opt = {}) {
             return;
         }
         const start = new Date().getTime();
-        const rs = buildJsContent(content, Object.assign({}, opt, {fileName: path.basename(from)}));
+        const rs = content.length ? buildJsContent(content, Object.assign({}, opt, {fileName: path.basename(from)})) : {
+            code: '',
+        };
         if (rs.error) {
             console.log(`    \x1b[31merror ${from}\x1b[0m`);
             console.error(rs.error);
@@ -957,7 +959,7 @@ let typeScript;
 function compileTypescript(content) {
     // {outputText: '...', diagnostics: [], sourceMapText: '...'}
     if (!typeScript)typeScript = require('typescript');
-    return typeScript.transpileModule(content, {
+    return typeScript.transpileModule(content.replace(/(import .* from .*)\.js/ig, '$1'), {
         compilerOptions: {
             module: typeScript.ModuleKind.AMD,
             jsx: typeScript.JsxEmit.React,
