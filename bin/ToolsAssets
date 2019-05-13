@@ -3,7 +3,7 @@ const program     = require('commander');
 const path        = require('path');
 const fs          = require('fs');
 const crypto      = require('crypto');
-const YAML        = require('yaml').default;
+const YAML        = require('yaml');
 const UglifyJS    = require("uglify-es");
 const sass        = require('node-sass');
 const compilerVue = require('./compiler-vue');
@@ -544,16 +544,33 @@ function watchProject(opt) {
                 out = getAssetsOutFileName(file),
                 fileName = path.basename(file)
             ;
-            const f = fileName[0];
+            const relativeFile = relativePath(file);
             const l = fileName[fileName.length-1];
-            if (f === '.' || f === '_' || l === '~' || l === '_') {
+            if (fileName[0] === '.' || l === '~' || l === '_' || relativeFile.indexOf('/.') !== -1) {
                 // 忽略这些文件, vim 编辑会产生 ~ _ 结尾的文件
                 return;
             }
+            if (relativeFile.indexOf('/_') !== -1) {
+                // 下划线开头的文件或文件夹
+                const split = relativeFile.split('/_');
+                const parentFile  = BASE_DIR + split[0] + '/' + split[1].split('/')[0] + path.extname(file);
+                if (fs.existsSync(parentFile)) {
+                    // 更新父文件
+                    item.type = 'change';
+                    item.file = file = parentFile;
+                    delete item.isDir;
+                    out = getAssetsOutFileName(file);
+                }
+                else {
+                    // 忽略文件
+                    return;
+                }
+            }
+
             switch (item.type) {
                 case 'change':
                 case 'add':
-                    const myOpt= Object.assign({
+                    const myOpt = Object.assign({
                         compress: isCompress,
                         dev: isDevelop,
                         noMap: opt.noMap,
@@ -656,26 +673,8 @@ function buildVueFile(from, out, opt) {
             return;
         }
         const start = new Date().getTime();
-        // 解析VUE组件
-        compilerVue.setSassOption('outputStyle', 'compact');
-        compilerVue.compile(content, from.substr(BASE_DIR.length), (err, contentVue) => {
-            if (err) {
-                console.log(`    \x1b[31merror: ${from}\x1b[0m`);
-                console.error(err);
-                if (opt.error)opt.error(err);
-                return;
-            }
-            const rs = buildJsContent(contentVue, {
-                compress: opt.compress,
-                noMap: opt.noMap,
-                fileName: path.basename(from) + '.js',
-            });
-            if (rs.error) {
-                console.log(`    \x1b[31merror: ${from}\x1b[0m`);
-                console.error(rs.error);
-                if (opt.error)opt.error(rs.error);
-                return;
-            }
+
+        const allDone = function(rs) {
             fs.writeFile(out, rs.code, (err) => {
                 if (err) {
                     console.log(`    \x1b[31merror: ${out}\x1b[0m`);
@@ -703,7 +702,62 @@ function buildVueFile(from, out, opt) {
 
                 console.log(`    \x1b[32mwrite ${relativePath(out)}, time: ${new Date().getTime() - start}ms\x1b[0m`);
             });
+        };
+
+        const subContents = readSubFiles(from);
+        if (subContents.length) {
+            let doneNum = 0;
+            let code = '';
+            const jobNum = subContents.length + 1;
+            const done = function(myRs) {
+                doneNum++;
+                code += "\n" + myRs.code;
+                if (doneNum === jobNum) {
+                    // 全部完成
+                    allDone({
+                        code: code,
+                    });
+                }
+            };
+            // 编译主文件
+            buildVueContent(from, content, done, opt);
+
+            // 编译子文件
+            subContents.forEach((item) => {
+                content = item.content + '\n' + content;
+                buildVueContent(item.file, item.content, done, Object.assign({}, opt, {includeModuleName: true}));
+            });
+        }
+        else {
+            buildVueContent(from, content, allDone, opt)
+        }
+    });
+}
+
+function buildVueContent(from, content, done, opt) {
+    // 解析VUE组件
+    compilerVue.setSassOption('outputStyle', 'compact');
+    compilerVue.compile(content, from.substr(BASE_DIR.length), (err, contentVue) => {
+        if (err) {
+            console.log(`    \x1b[31merror: ${from}\x1b[0m`);
+            console.error(err);
+            if (opt.error)opt.error(err);
+            return;
+        }
+        const rs = buildJsContent(contentVue, {
+            compress: opt.compress,
+            noMap: opt.noMap,
+            fileName: path.basename(from) + '.js',
+            moduleName: getModuleName(from),
+            includeModuleName: opt.includeModuleName,
         });
+        if (rs.error) {
+            console.log(`    \x1b[31merror: ${from}\x1b[0m`);
+            console.error(rs.error);
+            if (opt.error)opt.error(rs.error);
+            return;
+        }
+        done(rs);
     });
 }
 
@@ -805,7 +859,10 @@ function buildJsFile(from, out, opt = {}) {
             return;
         }
         const start = new Date().getTime();
-        const rs = content.length ? buildJsContent(content, Object.assign({}, opt, {fileName: path.basename(from)})) : {
+        const rs = content.length ? buildJsContent(content, Object.assign({}, opt, {
+            fileName: path.basename(from),
+            moduleName: getModuleName(from),
+        })) : {
             code: '',
         };
         if (rs.error) {
@@ -814,6 +871,18 @@ function buildJsFile(from, out, opt = {}) {
             if (opt.error)opt.error(rs.error);
             return;
         }
+
+        // 检查是否有子文件夹
+        const subContents = readSubFiles(from);
+        if (subContents.length)subContents.forEach((item) => {
+            const myRs = buildJsContent(item.content, Object.assign({}, opt, {
+                fileName: path.basename(item.file),
+                moduleName: item.moduleName,
+                includeModuleName: true,
+            }));
+            rs.code = myRs.code + "\n" + rs.code;
+        });
+
         fs.writeFile(out, rs.code, (err) => {
             if (err) {
                 console.log(`    \x1b[31merror ${out}\x1b[0m`);
@@ -843,6 +912,34 @@ function buildJsFile(from, out, opt = {}) {
     });
 }
 
+function readSubFiles(from) {
+    const ext = path.extname(from);
+    const fileName = path.basename(from);
+    const subDir = path.dirname(from) + '/_' + fileName.substr(0, fileName.length - ext.length);
+    const rs = [];
+    if (fs.existsSync(subDir)) {
+        const list = listDirFiles(subDir);
+        // const idPrefix = subDir.substr(BASE_DIR.length + 4) + '/';
+        if (list.length > 0) list.forEach((item) => {
+            const myExt = path.extname(item);
+            if (myExt !== ext) {
+                // js vue 文件可以相互载入
+                if ((ext === '.js' || ext === '.vue') && (myExt === '.js' || myExt === '.vue')) {} else {
+                    return;
+                }
+            }
+            let moduleName = item.substr(BASE_DIR.length + 4);
+            if (ext === '.js') moduleName = moduleName.substr(0, moduleName.length - 3);
+            rs.push({
+                file: item,
+                moduleName: moduleName,
+                content: fs.readFileSync(item, {encoding: 'utf-8'}),
+            });
+        });
+    }
+    return rs;
+}
+
 function removeFile(file, out = null) {
     out = out || getAssetsOutFileName(file);
     const exist = fs.existsSync(out);
@@ -863,14 +960,17 @@ function removeFile(file, out = null) {
         if (fs.existsSync(out + '.map')) {
             fs.unlinkSync(out + '.map');
         }
-        const dir = path.dirname(out);
-        fs.readdir(dir, (err, lists) => {
-            if (err) return;
+        try {
+            const dir = path.dirname(out);
+            const lists = fs.readdirSync(dir);
             if (lists.length === 0) {
                 // 目录下没文件了
                 fs.rmdirSync(dir);
             }
-        });
+        }
+        catch (e) {
+            console.log(e);
+        }
     }
     console.log(`    \x1b[32mremove ${out.substr(BASE_DIR.length)}\x1b[0m`);
 
@@ -924,7 +1024,7 @@ function buildJsContent(content, opt = {}) {
     if (content.indexOf('export ') !== -1 || content.indexOf('import ') !== -1) {
         try {
             // 使用 typescript 处理模块编译
-            let rsTs = compileTypescript(content);
+            let rsTs = compileTypescript(content, opt.moduleName, opt.includeModuleName);
             if (opt.compress) {
                 // 处理压缩
                 return minifyJs(rsTs.outputText, opt.fileName, opt.noMap);
@@ -956,17 +1056,63 @@ function buildJsContent(content, opt = {}) {
 }
 
 let typeScript;
-function compileTypescript(content) {
+function compileTypescript(content, moduleName, includeModuleName = false) {
     // {outputText: '...', diagnostics: [], sourceMapText: '...'}
     if (!typeScript)typeScript = require('typescript');
-    return typeScript.transpileModule(content.replace(/(import .* from .*)\.js/ig, '$1'), {
+
+    // 处理转换相对目录以及js后缀
+    const match = content.match(/import .* from .*/gi);
+    if (moduleName && match && match.length)match.forEach((item) => {
+        const m = item.match(/^(import.*from[ ]+['"])([^'"]+)(['"].*)$/i);
+        if (!m)return;
+        const uri = m[2];
+        const uriArr = uri.split('/');
+        if (uriArr[0] !== '.' && uriArr[0] !== '..') {
+            // 无需处理相对目录
+            if (path.extname(uri) === '.js') {
+                // 移除 .js 后缀
+                content = content.replace(m[0], m[1] + uri.substr(0, uri.length - 3) + m[3]);
+            }
+            return;
+        }
+
+        const idArr = path.dirname(moduleName).split('/');
+        while (true) {
+            if (uriArr[0] === '.') {
+                uriArr.shift();
+            }
+            else if (uriArr[0] === '..') {
+                uriArr.shift();
+                idArr.pop();
+            }
+            else {
+                break;
+            }
+        }
+        let newUri = idArr.concat(uriArr).join('/');
+        if (path.extname(newUri) === '.js') {
+            newUri = newUri.substr(0, newUri.length - 3);
+        }
+        content = content.replace(m[0], m[1] + newUri + m[3]);
+    });
+
+    let rs = typeScript.transpileModule('import * as module from "module";\n' + content, {
+        // moduleName: includeModuleName ? moduleName : undefined,
         compilerOptions: {
             module: typeScript.ModuleKind.AMD,
             jsx: typeScript.JsxEmit.React,
+            target: typeScript.ScriptTarget.ES5,  // 定义输出语言类型
             sourceMap: false,
             noEmitHelpers: true,        // 不输出辅助代码
         }
     });
+
+    if (includeModuleName) {
+        // 由于发现 moduleName 和加入的 import * as module from "module"; 有冲突，所以另外替换进入
+        rs.outputText = rs.outputText.replace(/^define\(\["require"/, 'define("'+ moduleName +'", ["require"');
+    }
+
+    return rs;
 }
 
 function md5(str) {
@@ -1064,6 +1210,11 @@ function listDirFiles(dir) {
     return rs;
 }
 
-function relativePath(path) {
-    return path.substr(BASE_DIR.length);
+function relativePath(file) {
+    return file.substr(BASE_DIR.length);
+}
+
+// 获取用于requirejs的id
+function getModuleName(srcFile) {
+    return srcFile.substr(SRC_DIR.length);
 }
