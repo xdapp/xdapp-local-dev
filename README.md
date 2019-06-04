@@ -103,8 +103,27 @@ src/i18n/    - 存放自己语言包的目录
                              例: ToolsAssets down
     diff [dir]             检查本地和远程差异的文件, 参数同deploy
 ```
+### 目录结构说明
+ 
+根目录 version.txt 设定版本，本地开发可设置为 dev。
 
-**目录结构说明**: 根目录 version.txt 设定版本，本地开发可设置为 dev，项目源代码在 `src` 目录中，生成的文件在 `webroot/` 目录中，第三方的库使用 [bower](http://bower.io/) 管理。
+项目源代码在 `src` 目录中，结构如下：
+
+```
+src/
+   i18n/                        语言包文件
+      en.yml
+      zh-CN.yml
+   page/                        页面文件
+      index.vue                 首页文件
+      service1/test1.vue        访问路径 /service1/test1
+      service1/test2.vue
+      ...
+   js/                          存放js文件
+   vuex/                        存放vuex相关文件
+```
+
+生成的文件在 `webroot/` 目录中。
 
 
 ### 发布和部署
