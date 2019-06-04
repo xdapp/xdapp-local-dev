@@ -52,6 +52,9 @@ function getChangeType(path)
                     hash: newMd5
                 };
             }
+            else {
+                return 'same';
+            }
         }
     }
     else if (typeof fileMd5List[path] !== "undefined")
@@ -176,7 +179,11 @@ function getCallback(root, call) {
             }
             else {
                 let result = getChangeType(path);
-                if (null !== result) {
+                if (result === 'same') {
+                    // 相同
+                    return;
+                }
+                else if (null !== result) {
                     notifyList[path] = result;
                 }
                 else {
