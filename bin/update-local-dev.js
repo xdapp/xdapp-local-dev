@@ -194,10 +194,9 @@ function update(done, error) {
                 if (haveError) return;
 
                 // 执行更新的脚本文件
-                const sh = tmpDir + tmpName + '/xdapp-local-dev-' + ver + '/bin/' + path.basename(__filename);
+                const sh = tmpDir + tmpName + '/xdapp-local-dev-v' + ver + '/bin/' + path.basename(__filename);
                 fs.copyFileSync(__filename, sh);
-                const exec = spawn('node', [sh, '/Users/jonwang/xdapp/test-setup/'], {cwd: tmpDir + tmpName + '/'});
-                // const gitExec = spawn(process.env._, [exec, BASE_DIR], {cwd: tmpDir + tmpName + '/'});
+                const exec = spawn(process.env._, [exec, BASE_DIR], {cwd: tmpDir + tmpName + '/'});
                 exec.stdout.on('data', (data) => {
                     console.log(data.toString().replace(/\n$/, ''));
                 });
@@ -209,6 +208,14 @@ function update(done, error) {
                 });
                 exec.on('close', (code) => {
                     done(code);
+
+                    // 清除临时文件
+                    fs.unlink(tmpDir + tmpName + '.tar.gz', (err) => {
+                        if (err) {
+                            console.log(err);
+                        }
+                    });
+                    rmDir(tmpDir + tmpName);
                 });
             });
         });
@@ -241,9 +248,9 @@ function fileMd5(file) {
 
 if (process.argv[1] !== __filename) {
     module.exports = {
-        update: update,
-        setup: setup,
-        getLastVersion: getLastVersion,
+        update,
+        setup,
+        getLastVersion,
     }
 }
 else {
