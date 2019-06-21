@@ -14,6 +14,7 @@ const SRC_DIR   = `${BASE_DIR}src/`;
 const VERSION   = 'apps';
 const OUT_DIR   = `${BASE_DIR}webroot/${VERSION}/`;
 const HASH_FILE = `${OUT_DIR}assets-hash.json`;
+const projectFile = BASE_DIR + 'projects.json';
 
 let assetsHash = fs.existsSync(HASH_FILE) ? JSON.parse(fs.readFileSync(HASH_FILE)) : {};
 let assetsHashTime = new Date().getTime();
@@ -52,6 +53,10 @@ if (process.argv[1] !== __filename) {
             buildDir(from, to, opt);
         },
         watchProject,
+        checkDirDiff,
+        assetsForUpdate,
+        assetsForDownload,
+        assetsForDelete,
         setDevelop: (status) => {
             isDevelop = status;
         },
@@ -82,9 +87,16 @@ else {
         .option('--dev', '研发模式')
         .option('--nomap', '不输出map')
         .option('--nocompress', '关闭压缩')
-        .option('--origin <string>', 'down|deploy|diff 可用, 发布到服务器, 默认 https://assets.xdapp.com')
         .option('-c, --config <string>', 'down|deploy|diff 可用, 配置文件，默认根目录的 assets-deploy.json 文件')
         .option('--clean', 'build|down|deploy 可用, 清除目录下文件多余文件');
+
+    program
+    .command('update')
+    .description('更新当前本地开发工具')
+    .action(() => {
+        const localUp = require('./update-local-dev.js');
+        localUp.update();
+    });
 
     program
         .command('build [dir]')
@@ -193,7 +205,6 @@ else {
                 compress: isCompress,
                 noMap: !!program.nomap,
                 dev : isDevelop,
-                origin: program.origin,
                 clean: program.clean
             };
             deployDir(dir, opt);
@@ -212,7 +223,6 @@ else {
                 compress: isCompress,
                 noMap: !!program.nomap,
                 dev : isDevelop,
-                origin: program.origin
             };
             downloadDir(dir, opt);
         });
@@ -227,7 +237,6 @@ else {
                 compress: isCompress,
                 dev : isDevelop,
                 noMap: !!program.nomap,
-                origin: program.origin,
                 config: program.c || program.config || null,
                 done: (list) => {
                     const diff = list[0];
@@ -317,6 +326,28 @@ function buildFile(from, to, opt = {}) {
     }
 }
 
+function getProjectConfig() {
+    try {
+        const content = fs.existsSync(projectFile) ? fs.readFileSync(projectFile) : '[]';
+        list = JSON.parse(content);
+        return list;
+    }
+    catch (e) {
+        console.log(e);
+        return [];
+    }
+}
+
+function getBindProject() {
+    let found = null;
+    getProjectConfig().forEach((item) => {
+        if (item.bind) {
+            found = item;
+        }
+    });
+    return found;
+}
+
 /**
  * 部署一个目录到服务器
  * @param dir
@@ -325,93 +356,131 @@ function buildFile(from, to, opt = {}) {
 function deployDir(dir, opt) {
     const oldDone = opt.done;
     const oldError = opt.error;
-    const conf = getAssetsDeployConfig(opt.config);
-    if (!conf)return false;
-
-    if (conf.origin && !opt.origin) {
-        opt.origin = conf.origin;
+    const project = getBindProject();
+    if (!project) {
+        console.log('没有绑定项目，请先绑定');
+        return false;
     }
+    console.log(`    App: ${project.appName}, Server: ${project.assetsOrigin}`);
+    opt = Object.assign(opt, project);
+
     optOriginCheck(opt);
 
     opt.done = (list) => {
         const diff = list[0],
-            miss = list[1],
-            job = [],
-            postDone = () => {
-                doing--;
-                if (doing === 0) {
-                    console.log('    job done');
-                }
-                else {
-                    const myJob = job.shift();
-                    if (myJob) addJob(myJob);
-                }
-            },
-            addJob = (myJob) => {
-                if (doing >= 10) {
-                    job.push(myJob);
-                }
-                else {
-                    doing++;
-                    httpPost.apply(this, myJob);
-                }
-            }
-        ;
+            miss = list[1];
         console.log(`    Found ${diff.length} diff file(s), ${miss.length} miss file(s).`);
-        let doing = 0,
-            content,
-            time,
-            hash,
-            sign,
-            url
-        ;
         if (diff.length > 0) {
             for (let i = 0; i < diff.length; i++) {
-                let file1 = diff[i];
-                let myOpt1 = {
-                    done: () => {
-                        console.log(`    \x1b[32mUpdate done: ${file1}\x1b[0m`);
-                        postDone();
-                        if (oldDone)oldDone(file1);
-                    },
-                    error: () => {
-                        console.log(`    \x1b[31mUpdate fail: ${file1}\x1b[0m`);
-                        postDone();
-                        if (oldError)oldError(file1);
-                    }
-                };
-                content = fs.readFileSync(SRC_DIR + file1);
-                time    = parseInt(new Date().getTime() / 1000);
-                hash    = md5(content);
-                sign    = md5(`${time}.${file1}.${hash}.${conf.token}.${conf.user}`);
-                url     = `${opt.origin}/up/${conf.app}/${file1}?time=${time}&sign=${sign}&user=${conf.user}&hash=${hash}`;
-                addJob([url, content, myOpt1]);
+                assetsUpdateJob(diff[i], opt, oldDone, oldError);
             }
         }
         if (opt.clean && miss.length > 0) {
             for (let i = 0; i < miss.length; i++) {
-                let file2 = miss[i];
-                let myOpt2 = {
-                    done: () => {
-                        console.log(`    \x1b[32mDelete done: ${file2}\x1b[0m`);
-                        postDone();
-                        if (oldDone)oldDone(file2);
-                    },
-                    error: () => {
-                        console.log(`    \x1b[31mDelete fail ${file2}\x1b[0m`);
-                        postDone();
-                        if (oldError)oldError(file2);
-                    }
-                };
-                time = parseInt(new Date().getTime() / 1000);
-                sign = md5(`${time}.${file2}.${conf.token}.${conf.user}`);
-                url  = `${opt.origin}/rm/${conf.app}/${file2}?time=${time}&user=${conf.user}&sign=${sign}`;
-                addJob([url, '', myOpt2]);
+                assetsForDelete(miss[i], opt, oldDone, oldError);
             }
         }
     };
 
     checkDirDiff(dir, opt);
+}
+
+let jobDoing = 0;
+const jobList = [];
+const addHttpJob = (myJob) => {
+    if (jobDoing >= 10) {
+        jobList.push(myJob);
+    }
+    else {
+        jobDoing++;
+        httpPost.apply(this, myJob);
+    }
+};
+const postDone = () => {
+    jobDoing--;
+    if (jobDoing === 0) {
+        console.log('    job done');
+    }
+    else {
+        const myJob = jobList.shift();
+        if (myJob) addHttpJob(myJob);
+    }
+};
+
+function assetsForUpdate(file, project, done, error) {
+    let myOpt = {
+        done: () => {
+            console.log(`    \x1b[32mUpdate done: ${file}\x1b[0m`);
+            postDone();
+            if (done)done(file);
+        },
+        error: () => {
+            console.log(`    \x1b[31mUpdate fail: ${file}\x1b[0m`);
+            postDone();
+            if (error)error(file);
+        }
+    };
+    const content = fs.readFileSync(SRC_DIR + file);
+    const time    = parseInt(new Date().getTime() / 1000);
+    const hash    = md5(content);
+    const sign    = md5(`${time}.${file}.${hash}.${project.assetsToken}.${project.adminAccount}`);
+    const url     = `${project.assetsOrigin}/up/${project.appName}/${file}?time=${time}&sign=${sign}&user=${project.adminAccount}&hash=${hash}`;
+    addHttpJob([url, content, myOpt]);
+}
+
+function assetsForDelete(file, conf, done, error) {
+    let myOpt = {
+        done: () => {
+            console.log(`    \x1b[32mDelete done: ${file}\x1b[0m`);
+            postDone();
+            if (done)done(file);
+        },
+        error: () => {
+            console.log(`    \x1b[31mDelete fail ${file}\x1b[0m`);
+            postDone();
+            if (error)error(file);
+        }
+    };
+    const time = parseInt(new Date().getTime() / 1000);
+    const sign = md5(`${time}.${file}.${conf.assetsToken}.${conf.adminAccount}`);
+    const url  = `${conf.assetsOrigin}/rm/${conf.appName}/${file}?time=${time}&user=${conf.adminAccount}&sign=${sign}`;
+    addHttpJob([url, '', myOpt]);
+}
+
+function assetsForDownload(file, conf, done, error) {
+    let myOpt = {
+        getContent: true,
+        done: (content) => {
+            postDone();
+            if (false === content) {
+                // 服务器文件不存在
+                console.log(`    \x1b[32mDownload done (not found): ${file}\x1b[0m`);
+                if (error)error('File not found on server: ' + file);
+                return;
+            }
+            console.log(`    \x1b[32mDownload done: ${file}\x1b[0m`);
+
+            // 写文件
+            const filePath = SRC_DIR + file;
+            const outDir = path.dirname(filePath);
+            if (!fs.existsSync(outDir)) {
+                // 创建目录
+                mkDir(outDir);
+            }
+            fs.writeFileSync(filePath, content);
+
+            if (done)done(file);
+        },
+        error: () => {
+            console.log(`    \x1b[31mDownload fail ${file}\x1b[0m`);
+            postDone();
+            if (error)error(file);
+        }
+    };
+    const time = parseInt(new Date().getTime() / 1000);
+    const sign = md5(`${time}.${file}.${conf.assetsToken}.${conf.adminAccount}`);
+    const url  = `${conf.assetsOrigin}/down/${conf.appName}/${file}?time=${time}&user=${conf.adminAccount}&sign=${sign}`;
+    addHttpJob([url, '', myOpt]);
 }
 
 /**
@@ -446,22 +515,23 @@ function checkDirDiff(dir, opt) {
                 break;
         }
     }
-    const conf = getAssetsDeployConfig(opt.config);
 
-    if (!conf)return false;
-
-    if (conf.origin && !opt.origin) {
-        opt.origin = conf.origin;
+    const project = getBindProject();
+    if (!project) {
+        console.log('没有绑定项目，请先绑定');
+        return false;
     }
+    console.log(`    App: ${project.appName}, Server: ${project.assetsOrigin}`);
+    opt = Object.assign(opt, project);
+
     optOriginCheck(opt);
 
     const listStr = JSON.stringify(fileHash);
     const time = parseInt(new Date().getTime() / 1000);
-    const sign = md5(`${time}.${listStr}.${conf.token}.${conf.user}`);
-    const url  = `${opt.origin}/check/${conf.app}?time=${time}&user=${conf.user}&sign=${sign}`;
+    const sign = md5(`${time}.${listStr}.${opt.assetsToken}.${opt.adminAccount}`);
+    const url  = `${opt.assetsOrigin}/check/${opt.appName}?time=${time}&user=${opt.adminAccount}&sign=${sign}`;
     const postData = require('querystring').stringify({list: listStr});
 
-    console.log(`    Check from: ${opt.origin}`);
     httpPost(url, postData, opt);
 }
 
@@ -475,22 +545,44 @@ function httpPost(url, postData, opt) {
 
     const req = require(options.protocol === 'https:' ? 'https' : 'http').request(options, (res) => {
         res.setEncoding('utf8');
+        let data = '';
         res.on('data', (chunk) => {
-            const rs = JSON.parse(chunk);
-            if (rs) {
-                if (rs.status === 'error') {
-                    console.log(rs.msg);
-                    if (opt.error)opt.error(rs.msg);
-                    return null;
+            data += chunk;
+        });
+        res.on('end', () => {
+            try {
+                if (res.statusCode === 404) {
+                    if (opt.error) opt.error(new Error('Api not found'));
+                    return;
                 }
-                else {
-                    if (opt.done)opt.done(rs.list);
+
+                if (opt.getContent) {
+                    if (opt.done) {
+                        if (res.statusCode === 201) {
+                            opt.done(false);
+                        }
+                        else {
+                            opt.done(data);
+                        }
+                    }
+                    return;
+                }
+                const rs = JSON.parse(data);
+                if (rs) {
+                    if (rs.status === 'error') {
+                        if (opt.error) opt.error(rs.msg);
+                        return null;
+                    } else {
+                        if (opt.done) opt.done(rs.list);
+                    }
+                } else {
+                    const err = `解析服务器返回失败: ${rs.status}`;
+                    if (opt.error) opt.error(err);
                 }
             }
-            else {
-                const err = `解析服务器返回失败: ${rs.status}`;
-                console.log(err);
-                if (opt.error)opt.error(err);
+            catch (e) {
+                console.log(e);
+                if (opt.error) opt.error(e);
             }
         });
     });
@@ -504,29 +596,12 @@ function httpPost(url, postData, opt) {
 }
 
 function optOriginCheck(opt) {
-    if (opt.origin) {
-        opt.origin = opt.origin.replace(/[\/]+$/, '');  // 将结尾的/移除
+    if (opt.assetsOrigin) {
+        opt.assetsOrigin = opt.assetsOrigin.replace(/[\/]+$/, '');  // 将结尾的/移除
     }
-    if (!opt.origin) {
-        opt.origin = opt.dev ? 'https://dev-assets.xdapp.com' : 'https://assets.xdapp.com';
+    else {
+        opt.assetsOrigin = opt.dev ? 'https://dev-assets.xdapp.com' : 'https://assets.xdapp.com';
     }
-}
-
-function getAssetsDeployConfig(file) {
-    file = file || BASE_DIR + 'deploy.json';
-
-    if (!fs.existsSync(file)) {
-        console.log("部署配置文件不存在: " + file);
-        return false;
-    }
-
-    const conf = JSON.parse(fs.readFileSync(file));
-    if (!conf) {
-        console.log("解析配置文件失败：" + file);
-        return false;
-    }
-
-    return conf;
 }
 
 function watchProject(opt) {

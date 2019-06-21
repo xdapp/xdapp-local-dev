@@ -20,7 +20,7 @@ Options:
   -p, --port <n>       监听端口，默认 8060
   --nocompress         研发模式时关闭压缩
   --nocache            禁用缓存
-  --dev                研发模式
+  --dev                前端研发模式
   --rebuild            启动时重新生成静态页面
   -h, --help           output usage information
 ```
@@ -50,16 +50,25 @@ Options:
 而 js 文件不需要后缀，例如 `import myTest from '../test'`，
 可以直接导入我们已经开发好的前端组件，API见 https://www.xdapp.com/docs/guide/components/ 导入方法在每个组件文档中都有，例：`import Card from 'components/card.vue'`。
 
-src目录结构：
+### 目录结构说明
+ 
+项目源代码在 `src` 目录中，结构如下：
 
 ```
-src/page/    - 存放页面的目录支持子文件夹
-                例 src/page/test.vue ，浏览器访问路径就是 /test
-                   src/page/abc/index.vue ，浏览器访问路径就是 /abc/ 或 /abc/index
-src/js/      - 存放自己js的目录
-src/store/   - 存放vuex文件的目录，使用方法见下面vuex部分（可支持双向绑定）
-src/i18n/    - 存放自己语言包的目录
+src/
+   i18n/                        语言包文件
+      en.yml
+      zh-CN.yml
+   page/                        存放页面的目录支持子文件夹
+      index.vue                 首页文件
+      service1/test1.vue        访问路径 /service1/test1
+      service1/test2.vue
+      ...
+   js/                          存放自己js的目录
+   vuex/                        存放vuex文件的目录，使用方法见下面vuex部分（可支持双向绑定）
 ```
+
+生成的文件在 `webroot/` 目录中。
 
 本服务器并不像webpack那样将项目整个打包发布，而是每个文件单独编译成一个独立的文件在使用时自动加载，为了便于项目长期稳定运行，不建议自己添加第三方库或者组件，如有需要可以联系我们评估后加入到公共库里使用。
 
@@ -103,38 +112,15 @@ src/i18n/    - 存放自己语言包的目录
                              例: ToolsAssets down
     diff [dir]             检查本地和远程差异的文件, 参数同deploy
 ```
-### 目录结构说明
- 
-根目录 version.txt 设定版本，本地开发可设置为 dev。
-
-项目源代码在 `src` 目录中，结构如下：
-
-```
-src/
-   i18n/                        语言包文件
-      en.yml
-      zh-CN.yml
-   page/                        页面文件
-      index.vue                 首页文件
-      service1/test1.vue        访问路径 /service1/test1
-      service1/test2.vue
-      ...
-   js/                          存放js文件
-   vuex/                        存放vuex相关文件
-```
-
-生成的文件在 `webroot/` 目录中。
 
 
 ### 发布和部署
 
-`deploy.json` 中配置了项目、账号、token等，使用 `npm run deploy` 部署到正式环境， `npm run deploy-dev` 部署到测试环境
+打开 http://127.0.0.1:8860/dev/ 绑定项目（支持绑定多个项目，从开发环境获取token）然后可以直接操作前端文件更新，也可以通过命令行工具运行（注意，命令行工具默认当前绑定项目）
 
-### 菜单配置
+### 本地菜单配置
 
-修改根目录的 `menu.json` 文件
-
-
+绑定项目后会自动同步线上菜单，如果需要设置本地菜单，可修改根目录的 `menu.json` 文件。
 
 
 ## Vuex 使用

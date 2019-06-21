@@ -1,6 +1,0 @@
-# English language package
-
-test: Language test
-
-arrTest:
-  test: Test2

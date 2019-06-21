@@ -1,14 +1,16 @@
 {
   "adminId": 10,
+  "version": "1.0.1",
+  "autoCheckUpdate": true,
   "admin": {
     "id": 10,
-    "name": "开发测试号",
+    "name": "本地开发",
     "email": "demo@xindong.com",
     "phone": "135****1234"
   },
   "isDeveloper": true,
   "company": {
-    "name": "心动网络股份有限公司",
+    "name": "本地开发",
     "logo": {
       "white": "https://assets.xdapp.com/images/xd-logo.svg",
       "black": "https://assets.xdapp.com/images/xd-logo-white.svg"

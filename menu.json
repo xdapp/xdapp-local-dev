@@ -1,35 +1,6 @@
-{
-  "status": "success",
-  "data": [
-    {
-      "html": "default",
-      "icon": "fa fa-chart-bar",
-      "href": "#",
-      "subMenu": [
-        {"html": "欢迎页面", "icon": "fa fa-tachometer-alt", "href": ""}
-      ]
-    },
-    {
-      "html": "测试样例",
-      "icon": "fa fa-diagnoses",
-      "href": "#",
-      "subMenu": [
-        {"html": "测试页面1", "icon": "fa fa-car", "href": "service1/test1"},
-        {"html": "测试页面2", "icon": "", "href": "service1/test2"},
-        {"html": "RPC通信测试", "icon": "fa fa-rocket", "href": "service1/test-rpc"}
-      ]
-    },
-    {
-      "html": "演示页面",
-      "icon": "fa fa-book",
-      "href": "#",
-      "subMenu": [
-        {"html": "Form表单提交", "icon": "", "href": "examples/form/submit"},
-        {"html": "HighCharts图表", "icon": "", "href": "examples/highcharts/line-base"},
-        {"html": "VUE组件加载", "icon": "", "href": "examples/components/"},
-        {"html": "全部Icon图标", "icon": "", "href": "examples/icons"},
-        {"html": "自定义列表格", "icon": "", "href": "examples/xd-table"}
-      ]
-    }
-  ]
-}
+[
+  {"title": "Dashboard 演示", "icon": "fa fa-desktop-alt", "url": "dashboard"},
+  {"title": "测试页面1", "icon": "fa fa-car", "url": "service1/test1"},
+  {"title": "测试页面2", "icon": "", "url": "service1/test2"},
+  {"title": "RPC通信测试", "icon": "fa fa-rocket", "url": "service1/test-rpc"}
+]

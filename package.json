@@ -7,23 +7,20 @@
     "start": "./bin/Server",
     "dev": "./bin/Server --dev",
     "deploy": "./bin/ToolsAssets deploy",
-    "deploy-dev": "./bin/ToolsAssets deploy --origin=https://dev-assets.xdapp.com",
     "diff": "./bin/ToolsAssets diff",
-    "diff-dev": "./bin/ToolsAssets diff --origin=https://dev-assets.xdapp.com",
     "down": "./bin/ToolsAssets down",
-    "down-dev": "./bin/ToolsAssets down --origin=https://dev-assets.xdapp.com",
     "build": "./bin/ToolsAssets build"
   },
   "dependencies": {
     "commander": "^2.20.0",
     "hprose": "github:hprose/hprose-nodejs#master",
     "node-sass": "^4.12.0",
-    "typescript": "^3.4.5",
+    "typescript": "^3.5.2",
     "uglify-es": "^3.3.9",
     "vue-template-compiler": "^2.6.10",
     "vue-template-es2015-compiler": "^1.9.1",
     "vueify": "^9.4.1",
-    "yaml": "^1.5.1"
+    "yaml": "^1.6.0"
   },
   "devDependencies": {
     "socket.io": "^2.2.0"

@@ -9,7 +9,6 @@ const net = require('net');
 const ToolsAssets = require('./ToolsAssets');
 const hprose = require('hprose');
 const crypto = require('crypto');
-const XDAppAssetUrl = 'https://dev-assets.xdapp.com/';
 
 program
     .version('1.0')
@@ -19,11 +18,15 @@ program
     .option('--nocache', '禁用缓存')
     .option('--dev', '研发模式, 将关闭压缩功能')
     .option('--rebuild', '启动时重新生成静态页面')
+    .option('--assets-origin <string>', '静态文件源，默认 https://dev-assets.xdapp.com')
     .parse(process.argv);
 
 const host = program.host || '0.0.0.0';
 const port = (program.port || 8060) - 0;
 const sPort = port + 1;
+
+// 默认前端路径
+const AssetsOrigin = program.assetsOrigin ? program.assetsOrigin.replace(/\/$/, '') : 'https://dev-assets.xdapp.com';
 
 if (port < 80) {
     console.log("端口错误, 不可小于80");
@@ -32,7 +35,10 @@ if (port < 80) {
 
 const BASE_DIR   = path.resolve(__dirname + '/../').replace(/\\/, '/') + '/';
 const assetPath  = `${BASE_DIR}webroot/`;
+const projectFile = BASE_DIR + 'projects.json';
 const isCompress = true !== program.nocompress && !program.dev;
+const projectConfig = getProjectConfig();
+let bindProject = getBindProject();
 
 let cachedFiles = {};
 let TEMP_DIR = `${BASE_DIR}.cache/`;
@@ -58,6 +64,42 @@ else if (program.dev) {
     });
 }
 
+function getProjectConfig() {
+    try {
+        const content = fs.existsSync(projectFile) ? fs.readFileSync(projectFile) : '[]';
+        list = JSON.parse(content);
+        return list;
+    }
+    catch (e) {
+        console.log(e);
+        return [];
+    }
+}
+
+function getBindProject() {
+    let found = null;
+    projectConfig.forEach((item) => {
+        if (item.bind) {
+            found = item;
+        }
+    });
+    return found;
+}
+
+// 输出给浏览器的项目的参数
+function getProjectPublishData(item) {
+    return {
+        env: item.env,
+        appId: item.appId,
+        appName: item.appName,
+        appTitle: item.appTitle,
+        appLogo: item.appLogo,
+        bind: item.bind,
+        addTime: item.addTime,
+        assetsOrigin: item.assetsOrigin,
+    };
+}
+
 function outIndexPage(response) {
     const reqFile = assetPath + 'index.html';
     response.setHeader('Content-Type', 'text/html');
@@ -72,8 +114,8 @@ function outIndexPage(response) {
             }
         }, function (error, rep, body) {
             response.statusCode = rep.statusCode;
-            if (XDAppAssetUrl !== 'https://dev-assets.xdapp.com/') {
-                body = body.replace(/https:\/\/dev\-assets\.xdapp\.com\//g, XDAppAssetUrl);
+            if (AssetsOrigin !== 'https://dev-assets.xdapp.com') {
+                body = body.replace(/https:\/\/dev\-assets\.xdapp\.com/g, AssetsOrigin);
             }
             response.end(body);
 
@@ -111,7 +153,8 @@ const httpServer = http.Server((request, response) => {
                 'var _AssetsIsDev = true;\n' +
                 'var _devAppName = "dev";\n' +
                 'var _isXdAppAppAgentDev = true;\n' +
-                'var assetsUrl = "' + XDAppAssetUrl + '";\n' +
+                'var _bindProject = '+ (bindProject ? JSON.stringify(getProjectPublishData(bindProject)) : 'null') +';\n' +
+                'var assetsOrigin = "' + AssetsOrigin + '";\n' +
                 'var assetsVer = "v1";\n' +
                 'var libVersion = "1";\n' +
                 'var serviceUrl = "http://127.0.0.1:'+ (sPort+1) +'/";\n'
@@ -119,7 +162,7 @@ const httpServer = http.Server((request, response) => {
             return;
 
         case 'api':
-            if (uri === 'api/menu.json' || uri === 'api/setting.json') {
+            if (uri === 'api/setting.json') {
                 fs.readFile(BASE_DIR + uri.substr(4), (err, content) => {
                     if (err) {
                         response.statusCode = 404;
@@ -128,6 +171,12 @@ const httpServer = http.Server((request, response) => {
                     }
                     response.end(content);
                 });
+                return;
+            }
+            else if (uri === 'api/logout.json' || uri === 'api/logout') {
+                response.statusCode = 302;
+                response.setHeader('Location', '/');
+                response.end();
                 return;
             }
     }
@@ -146,7 +195,7 @@ const httpServer = http.Server((request, response) => {
     }
     else if (!fs.existsSync(reqFile)) {
         response.statusCode = 404;
-        response.end('file not found' + reqFile);
+        response.end('file not found: ' + reqFile.substr(BASE_DIR.length));
         return;
     }
     else {
@@ -274,6 +323,11 @@ httpServer.listen(port, host, function() {
     console.log('    listening console web on http://'+ host +':'+ port);
     console.log('    listening develop rpc server on tcp://127.0.0.1:' + sPort);
     console.log('    listening develop rpc for web console on tcp://127.0.0.1:' + (sPort + 1));
+
+    const localUp = require('./update-local-dev.js');
+    localUp.getLastVersion(function (version) {
+        console.log('    Last version:', version)
+    });
 });
 
 let lastRequestId = 0;
@@ -389,7 +443,7 @@ const serverRcp = net.createServer((socket) => {
                 return;
             }
 
-            const rand = '_' + new Date().getTime();
+            const rand = '___' + new Date().getTime();
             const time = parseInt(new Date().getTime() / 1000);
             const hash = getHash(time, rand);
 
@@ -439,7 +493,6 @@ setInterval(() => {
     }
 }, 1000 * 60 * 10);
 
-
 /**
  *
  * @param socket 连接对象
@@ -487,8 +540,26 @@ function transportToService(socket, request, callback, timeout) {
     socket.write(buf);
 }
 
+let hpClient, hpClientService;
 
+if (bindProject) {
+    hpClientService = createService('http://127.0.0.1:8088/service/' + bindProject.appName, function (proxy) {
+        hpClient = proxy;
+    });
+}
 
+function createService(url, readyCallback, errorCallback = null) {
+    let service = url.substr(0, 5) === 'ws://' || url.substr(0, 6) === 'wss://' ? new hprose.WebSocketClient(url) : new hprose.HttpClient(url);
+    service.simple = true;
+    service.fullDuplex = true;
+    service.idempotent = true;
+    service.ready(readyCallback, errorCallback);
+    service.on('error', function(func, e) {
+        console.log(func, e);
+    });
+    service.setHeader('X-Local-Dev', 'XDApp');
+    return service;
+}
 
 const serverWs = hprose.Server.create("ws://0.0.0.0:" + (sPort + 1));
 // 订阅功能
@@ -497,10 +568,412 @@ serverWs.publish('xdapp_subscribe', {
     'heartbeat': 600 * 1000,
 });
 
-// 获取时间戳
+// 绑定项目
+serverWs.addFunction(function (token) {
+    if (!token || !token.appId > 0)return false;
+
+    try {
+        let found = -1;
+        projectConfig.forEach((item, idx) => {
+            if (item.appId === token.id && item.origin === token.origin) {
+                // 同一个
+                found = idx;
+            }
+        });
+        if (found > 0) {
+            projectConfig[found] = Object.assign(projectConfig[found], token);
+        }
+        else {
+            token.addTime = new Date().getTime();
+            projectConfig.push(token);
+        }
+        fs.writeFileSync(projectFile, JSON.stringify(projectConfig, null, 2));
+        return true;
+    }
+    catch (e) {
+        return false;
+    }
+}, 'local_project_bind');
+
+// 项目列表
 serverWs.addFunction(function () {
-    return parseInt(new Date().getTime() / 1000);
-}, 'xdapp_time_getTime');
+    try {
+        const list = [];
+        projectConfig.forEach((item) => {
+            list.push(getProjectPublishData(item));
+        });
+        return list;
+    }
+    catch (e) {
+        console.log(e);
+        return false;
+    }
+}, 'local_project_getList');
+
+// 切换绑定的项目
+serverWs.addAsyncFunction(function (appId, idx, callback) {
+    try {
+        if (arguments.length !== 3)return (arguments[arguments.length - 1])({
+            status: false,
+            msg: '参数错误',
+        });
+
+        if (!appId > 0)return false;
+        if (bindProject && bindProject.appId === appId) {
+            callback(false);
+            return false;
+        }
+
+        const project = projectConfig[idx];
+        if (!project || project.appId !== appId) {
+            callback(false);
+            return false;
+        }
+
+        projectConfig.forEach((item) => {
+            delete item.bind;
+        });
+        project.bind = true;
+        bindProject = project;
+
+        if (hpClientService) {
+            hpClientService = null;
+            hpClient = null;
+        }
+
+        // 重新绑定
+        hpClientService = createService('http://127.0.0.1:8088/service/' + bindProject.appName, function (proxy) {
+            hpClient = proxy;
+
+            // 保存文件
+            fs.writeFileSync(projectFile, JSON.stringify(projectConfig, null, 2));
+            callback(getProjectPublishData(bindProject));
+        });
+
+        console.log('    bind new project: ' + bindProject.appName);
+    }
+    catch (e) {
+        console.log(e);
+        callback(false);
+    }
+}, 'local_project_switch');
+
+// 解绑项目
+serverWs.addFunction(function (appId, idx) {
+    try {
+        if (!appId > 0)return false;
+
+        const project = projectConfig[idx];
+        if (!project || project.appId !== appId) {
+            return false;
+        }
+
+        if (project.bind && bindProject.appId === project.appId && hpClientService) {
+            hpClientService = null;
+            hpClient = null;
+            bindProject = null;
+        }
+
+        projectConfig.splice(idx, 1);
+        fs.writeFileSync(projectFile, JSON.stringify(projectConfig, null, 2));
+
+        console.log('    unbind project: ' + project.appName);
+
+        return true;
+    }
+    catch (e) {
+        console.log(e);
+        return false;
+    }
+}, 'local_project_unbind');
+
+// 对比静态文件
+serverWs.addAsyncFunction(function (appId, idx, callback) {
+    try {
+        if (arguments.length !== 3)return (arguments[arguments.length - 1])({
+            status: false,
+            msg: '参数错误',
+        });
+
+        const project = projectConfig[idx];
+        if (!project || project.appId !== appId) {
+            throw new Error('未找到项目，请刷新页面重试');
+        }
+
+        const opt = {
+            appName: project.appName,
+            adminAccount: project.adminAccount,
+            assetsToken: project.assetsToken,
+            assetsOrigin: project.assetsOrigin,
+            done: function (list) {
+                callback({
+                    status: true,
+                    data: list
+                });
+            },
+            error: function (err) {
+                callback({
+                    status: false,
+                    msg: err,
+                });
+            }
+        };
+        ToolsAssets.checkDirDiff('', opt);
+    }
+    catch (e) {
+        console.log(e);
+        callback({
+            status: false,
+            msg: e,
+        });
+    }
+}, 'local_assets_compare');
+
+// 上传静态文件
+serverWs.addAsyncFunction(function (appId, idx, files, callback) {
+    try {
+        if (arguments.length !== 4) {
+            throw new Error('参数错误');
+        }
+
+        if (!files || files.length === 0) {
+            throw new Error('文件列表为空');
+        }
+
+        const project = projectConfig[idx];
+        if (!project || project.appId !== appId) {
+            console.log(appId, idx);
+            throw new Error('未找到项目，请刷新页面重试');
+        }
+
+        let num = 0;
+        let haveError = false;
+        const done = function() {
+            if (++num === files.length) {
+                if (haveError) {
+                    callback(false);
+                }
+                else {
+                    callback(true);
+                }
+            }
+        };
+        const error = function (err) {
+            haveError = true;
+            if (++num === files.length) {
+                callback(err);
+            }
+        };
+        files.forEach(file => {
+            ToolsAssets.assetsForUpdate(file, project, done, error);
+        })
+    }
+    catch (e) {
+        console.log(e);
+        callback({
+            status: false,
+            msg: e.message,
+        });
+    }
+}, 'local_assets_updateFiles');
+
+
+// 删除服务器静态文件
+serverWs.addAsyncFunction(function (appId, idx, files, callback) {
+    try {
+        if (arguments.length !== 4) {
+            throw new Error('参数错误');
+        }
+
+        if (!files || files.length === 0) {
+            throw new Error('文件列表为空');
+        }
+
+        const project = projectConfig[idx];
+        if (!project || project.appId !== appId) {
+            console.log(appId, idx);
+            throw new Error('未找到项目，请刷新页面重试');
+        }
+
+        let num = 0;
+        let haveError = false;
+        const done = function() {
+            if (++num === files.length) {
+                if (haveError) {
+                    callback(false);
+                }
+                else {
+                    callback(true);
+                }
+            }
+        };
+        const error = function (err) {
+            haveError = true;
+            if (++num === files.length) {
+                callback(err);
+            }
+        };
+        files.forEach(file => {
+            ToolsAssets.assetsForDelete(file, project, done, error);
+        })
+    }
+    catch (e) {
+        console.log(e);
+        callback({
+            status: false,
+            msg: e.message,
+        });
+    }
+}, 'local_assets_deleteFiles');
+
+// 下载静态文件
+serverWs.addAsyncFunction(function (appId, idx, files, callback) {
+    try {
+        if (arguments.length !== 4) {
+            throw new Error('参数错误');
+        }
+
+        if (!files || files.length === 0) {
+            throw new Error('文件列表为空');
+        }
+
+        const project = projectConfig[idx];
+        if (!project || project.appId !== appId) {
+            console.log(appId, idx);
+            throw new Error('未找到项目，请刷新页面重试');
+        }
+
+        let num = 0;
+        let haveError = false;
+        const done = function() {
+            if (++num === files.length) {
+                if (haveError) {
+                    callback(false);
+                }
+                else {
+                    callback(true);
+                }
+            }
+        };
+        const error = function (err) {
+            haveError = true;
+            if (++num === files.length) {
+                callback({
+                    status: false,
+                    msg: err,
+                });
+            }
+        };
+        files.forEach(file => {
+            ToolsAssets.assetsForDownload(file, project, done, error);
+        })
+    }
+    catch (e) {
+        console.log(e);
+        callback({
+            status: false,
+            msg: e.message,
+        });
+    }
+}, 'local_assets_downloadFiles');
+
+
+// 绑定项目
+serverWs.addAsyncFunction(function (callback) {
+    const localUp = require('./update-local-dev.js');
+    localUp.update(function () {
+        callback(true);
+    }, function (err) {
+        callback(err.message);
+    });
+}, 'local_update');
+
+// 重启服务器
+serverWs.addFunction(function () {
+    setTimeout(function () {
+        process.on("exit", function () {
+            require("child_process").spawn(process.argv.shift(), process.argv, {
+                cwd: process.cwd(),
+                detached : true,
+                stdio: "inherit"
+            });
+        });
+        process.exit();
+    }, 500);
+
+    return true;
+}, 'local_restart');
+
+// 获取时间戳
+// serverWs.addFunction(function () {
+//     return parseInt(new Date().getTime() / 1000);
+// }, 'xdapp_time_getTime');
+
+// 获取菜单
+serverWs.addFunction(async function () {
+    let rs;
+    if (hpClient) {
+        rs = await hpClient.xdapp.menu.getList();
+    }
+
+    let devMenu = [
+        {"local": true, title: '开发工具', icon: "fa fa-rocket", id: -999},
+        {"local": true, title: '本地开发工具', icon: "fa fa-rocket", id: -998, url: 'dev/', parentId: -999},
+    ];
+
+    const content = fs.readFileSync(BASE_DIR + 'menu.json');
+    try {
+        json = JSON.parse(content);
+        if (typeof json === 'object' && json.data) {
+            // 兼容老版本的菜单
+            let list = [];
+            let tmpId = -1001;
+            json.data.forEach((item) => {
+                item.title = item.html;
+                item.url = item.href;
+                item.local = true;
+                if (item.id === undefined) {
+                    item.id = --tmpId;
+                }
+                delete item.html;
+                delete item.href;
+                list.push(item);
+
+                if (item.subMenu) {
+                    item.subMenu.forEach((item2) => {
+                        item2.title = item2.html;
+                        item2.url = item2.href;
+                        item2.parentId = item.id;
+                        item2.id = --tmpId;
+                        item2.local = true;
+                        delete item2.html;
+                        delete item2.href;
+                        list.push(item2);
+                    })
+                }
+                delete item.subMenu;
+            });
+            devMenu = devMenu.concat(list);
+        }
+        else if (Array.isArray(json)) {
+            // 新版配置
+            let needParent = false;
+            json.forEach((item) => {
+                if (!item.parentId) {
+                    item.parentId = -1000;
+                    needParent = true;
+                }
+                item.local = true;
+            });
+            if (needParent)devMenu.push({"local": true, title: '本地菜单', icon: "fa fa-couch", id: -1000});
+            devMenu = devMenu.concat(json);
+        }
+    }catch (e) {
+    }
+
+    // 合并菜单
+    return rs ? devMenu.concat(rs) : devMenu;
+}, 'xdapp_my_menu');
 
 // 格式化时间
 serverWs.addFunction(function (f = 'Y-m-d H:i:s') {
@@ -525,16 +998,6 @@ serverWs.addFunction(function (f = 'Y-m-d H:i:s') {
         .replace(/s/g, num2str(s));
 }, 'xdapp_time_format');
 
-// 获取权限列表
-serverWs.addFunction(function () {
-    return [];
-}, 'xdapp_admin_getMyOauthList');
-
-// 获取角色
-serverWs.addFunction(function () {
-    return [];
-}, 'xdapp_menu_getRoles');
-
 serverWs.addAsyncMissingFunction(function (name, args, callback) {
     const pos = name.indexOf('_');
     const err = new Error('Can\'t find this function ' + name);
@@ -544,6 +1007,19 @@ serverWs.addAsyncMissingFunction(function (name, args, callback) {
     const serviceName = name.substr(0, pos);
 
     if (!RpcServices[serviceName]) {
+        if (serviceName === 'xdapp' && hpClientService) {
+            // 调用绑定线上服务
+            if (program.dev) {
+                console.log('    proxy function: ', name, args);
+            }
+            hpClientService.invoke(name, args, {mode: hprose.RawWithEndTag}).then(function (rs) {
+                callback(rs);
+            }).catch( function(err) {
+                callback(err);
+            });
+            return;
+        }
+
         throw err;
     }
     const socket = RpcServices[serviceName];
@@ -561,7 +1037,7 @@ serverWs.addAsyncMissingFunction(function (name, args, callback) {
         body: 'C' + hprose.serialize(name) + hprose.serialize(args) + 'z',
     };
     transportToService(socket, request, callback, 600);
-});
+}, {mode: hprose.RawWithEndTag});
 
 serverWs.start();
 
