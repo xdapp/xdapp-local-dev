@@ -32,7 +32,7 @@ function setup(SETUP_PATH) {
             }
         }
         fs.copyFileSync(BASE_DIR + file, SETUP_PATH + file);
-        console.log('copy ' + file + (backup ? ', backup file: ' + backupFile : ''));
+        console.log('copy ' + file + (backup && backupFile ? ', backup file: ' + backupFile : ''));
     }
     function copyDir(dirName) {
         dirName = dirName.replace(/[\/|\\]+$/, '');
