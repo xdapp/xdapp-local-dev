@@ -1014,7 +1014,7 @@ serverWs.addAsyncMissingFunction(function (name, args, callback) {
             if (program.dev) {
                 console.log('    proxy function: ', name, args);
             }
-            hpClientService.invoke(name, args, {mode: hprose.RawWithEndTag}).then(function (rs) {
+            hpClientService.invoke(name, args).then(function (rs) {
                 callback(rs);
             }).catch( function(err) {
                 callback(err);
@@ -1039,7 +1039,7 @@ serverWs.addAsyncMissingFunction(function (name, args, callback) {
         body: 'C' + hprose.serialize(name) + hprose.serialize(args) + 'z',
     };
     transportToService(socket, request, callback, 600);
-}, {mode: hprose.RawWithEndTag});
+});
 
 serverWs.start();
 

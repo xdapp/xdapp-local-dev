@@ -196,7 +196,7 @@ function update(done, error) {
                 // 执行更新的脚本文件
                 const sh = tmpDir + tmpName + '/xdapp-local-dev-v' + ver + '/bin/' + path.basename(__filename);
                 // fs.copyFileSync(__filename, sh);
-                const exec = spawn(process.env._, [exec, BASE_DIR], {cwd: tmpDir + tmpName + '/'});
+                const exec = spawn('node', [sh, BASE_DIR], {cwd: tmpDir + tmpName + '/'});
                 exec.stdout.on('data', (data) => {
                     console.log(data.toString().replace(/\n$/, ''));
                 });
