@@ -18,6 +18,7 @@ program
     .option('--nocache', '禁用缓存')
     .option('--dev', '研发模式, 将关闭压缩功能')
     .option('--rebuild', '启动时重新生成静态页面')
+    .option('--service-origin <string>', '服务源，默认 https://dev.xdapp.com')
     .option('--assets-origin <string>', '静态文件源，默认 https://dev-assets.xdapp.com')
     .parse(process.argv);
 
@@ -27,6 +28,7 @@ const sPort = port + 1;
 
 // 默认前端路径
 const AssetsOrigin = program.assetsOrigin ? program.assetsOrigin.replace(/\/$/, '') : 'https://dev-assets.xdapp.com';
+const ServiceOrigin = program.serviceOrigin ? program.serviceOrigin.replace(/\/$/, '') : 'https://dev.xdapp.com';
 
 if (port < 80) {
     console.log("端口错误, 不可小于80");
@@ -543,7 +545,7 @@ function transportToService(socket, request, callback, timeout) {
 let hpClient, hpClientService;
 
 if (bindProject) {
-    hpClientService = createService('http://127.0.0.1:8088/service/' + bindProject.appName, function (proxy) {
+    hpClientService = createService( ServiceOrigin + '/service/' + bindProject.appName, function (proxy) {
         hpClient = proxy;
     });
 }
@@ -642,7 +644,7 @@ serverWs.addAsyncFunction(function (appId, idx, callback) {
         }
 
         // 重新绑定
-        hpClientService = createService('http://127.0.0.1:8088/service/' + bindProject.appName, function (proxy) {
+        hpClientService = createService(ServiceOrigin + '/service/' + bindProject.appName, function (proxy) {
             hpClient = proxy;
 
             // 保存文件

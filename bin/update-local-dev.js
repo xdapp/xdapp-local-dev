@@ -10,7 +10,7 @@ const tmpName = 'tmp-for-update';
 const spawn = require('child_process').spawn;
 const crypto = require('crypto');
 
-if (process.argv.length === 3) {
+if (process.argv[1] === __filename && process.argv.length === 3) {
     // 安装到指定目录
     setup(process.argv[2]);
     return;
