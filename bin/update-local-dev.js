@@ -23,14 +23,16 @@ function setup(SETUP_PATH) {
         return;
     }
     function copyFile(file, backup = false) {
+        let backupFile;
         if (backup) {
             if (fileMd5(BASE_DIR + file) !== fileMd5(SETUP_PATH + file)) {
                 const ext = path.extname(file);
-                fs.renameSync(SETUP_PATH + file, SETUP_PATH + file.substr(0, file.length - ext.length) + '.bak' + ext);
+                backupFile = file.substr(0, file.length - ext.length) + '.bak' + ext;
+                fs.renameSync(SETUP_PATH + file, SETUP_PATH + backupFile);
             }
         }
         fs.copyFileSync(BASE_DIR + file, SETUP_PATH + file);
-        console.log('copy ', file);
+        console.log('copy ' + file + (backup ? ', backup file: ' + backupFile));
     }
     function copyDir(dirName) {
         dirName = dirName.replace(/[\/|\\]+$/, '');
@@ -194,8 +196,9 @@ function update(done, error) {
                 if (haveError) return;
 
                 // 执行更新的脚本文件
-                const sh = tmpDir + tmpName + '/xdapp-local-dev-v' + ver + '/bin/' + path.basename(__filename);
+                const sh = tmpDir + tmpName + '/xdapp-local-dev-' + ver + '/bin/' + path.basename(__filename);
                 // fs.copyFileSync(__filename, sh);
+                console.log(sh);
                 const exec = spawn('node', [sh, BASE_DIR], {cwd: tmpDir + tmpName + '/'});
                 exec.stdout.on('data', (data) => {
                     console.log(data.toString().replace(/\n$/, ''));
