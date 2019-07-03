@@ -1,4 +1,4 @@
-# XDApp Console 静态文件开发框架
+# XDApp 本地开发开发工具
 
 ### 初始化环境
 
@@ -6,7 +6,7 @@
 
 ### 启动服务
 
-`bin/Server` 或 `npm run start` (npm run不支持增加额外参数)
+`bin/Server --dev` 或 `npm run dev`
 
 `bin/Server` 使用方法：
 
@@ -25,6 +25,14 @@ Options:
   -h, --help           output usage information
 ```
 
+服务器启动后将分别监听 8060、8061、8062 三个端口，访问 http://127.0.0.1:8060/dev/ 则进入本地开发UI控制台管理工具页面。
+
+其中：
+
+* 8060 端口是web页面http
+* 8061 端口是用来给RPC服务器连接的(使用我们提供的SDK)
+* 8062 端口是用来给页面的websocket端口（无视即可）
+
 ### 更多命令
 
 `npm run diff` 相当于执行 `./bin/ToolsAssets diff --origin=https://dev-assets.xdapp.com`，可编辑 package.json 更改
@@ -33,11 +41,8 @@ Options:
 "start": "./bin/Server",
 "dev": "./bin/Server --dev",
 "deploy": "./bin/ToolsAssets deploy",
-"deploy-dev": "./bin/ToolsAssets deploy --origin=https://dev-assets.xdapp.com",
 "diff": "./bin/ToolsAssets diff",
-"diff-dev": "./bin/ToolsAssets diff --origin=https://dev-assets.xdapp.com",
 "down": "./bin/ToolsAssets down",
-"down-dev": "./bin/ToolsAssets down --origin=https://dev-assets.xdapp.com",
 "build": "./bin/ToolsAssets build"
 ```
 
@@ -72,11 +77,7 @@ src/
 
 本服务器并不像webpack那样将项目整个打包发布，而是每个文件单独编译成一个独立的文件在使用时自动加载，为了便于项目长期稳定运行，不建议自己添加第三方库或者组件，如有需要可以联系我们评估后加入到公共库里使用。
 
-### 启动研发服务
-
-`bin/Server --dev` 或 `npm run dev`
-
-### 命令行工具
+### 静态文件命令行工具
 
 `bin/ToolsAssets` 使用方法：
 
