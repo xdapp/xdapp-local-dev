@@ -5,7 +5,7 @@
         请替换本首页面内容为你的内容或删除本页，本文件路径 <code>src/page/index.vue</code>
 
         <br><br>
-        src/page/ 目录内文件为示例，请删除
+        src/page/ 目录内文件为示例，请删除。
 
         <br><br><br>
 

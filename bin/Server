@@ -159,7 +159,7 @@ const httpServer = http.Server((request, response) => {
                 'var assetsOrigin = "' + AssetsOrigin + '";\n' +
                 'var assetsVer = "v1";\n' +
                 'var libVersion = "1";\n' +
-                'var serviceUrl = "http://127.0.0.1:'+ (sPort+1) +'/";\n'
+                'var serviceUrl = "ws://127.0.0.1:'+ (sPort+1) +'/service/dev";\n'
             );
             return;
 
