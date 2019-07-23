@@ -975,7 +975,7 @@ serverWs.addFunction(async function () {
 
     // 合并菜单
     return rs ? devMenu.concat(rs) : devMenu;
-}, 'xdapp_my_menu');
+}, 'xdapp_my_getMenu');
 
 // 格式化时间
 serverWs.addFunction(function (f = 'Y-m-d H:i:s') {
