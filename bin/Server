@@ -159,7 +159,7 @@ const httpServer = http.Server((request, response) => {
                 'var assetsOrigin = "' + AssetsOrigin + '";\n' +
                 'var assetsVer = "v1";\n' +
                 'var libVersion = "1";\n' +
-                'var serviceUrl = "ws://127.0.0.1:'+ (sPort+1) +'/service/dev";\n'
+                'var serviceUrl = "ws://127.0.0.1:'+ (sPort+1) +'";\n'
             );
             return;
 
@@ -324,7 +324,7 @@ ToolsAssets.watchProject({
 httpServer.listen(port, host, function() {
     console.log('    listening console web on http://'+ host +':'+ port);
     console.log('    listening develop rpc server on tcp://127.0.0.1:' + sPort);
-    console.log('    listening develop rpc for web console on tcp://127.0.0.1:' + (sPort + 1));
+    console.log('    listening develop rpc for web console on ws://127.0.0.1:' + (sPort + 1));
 
     const localUp = require('./update-local-dev.js');
     localUp.getLastVersion(function (version) {
@@ -438,8 +438,9 @@ const serverRcp = net.createServer((socket) => {
 
             if (rs.hash !== getHash(rs.time, rs.rand)) {
                 console.log('hash error');
-                sysCall('regErr', ['验证密钥错误，默认为 123456, 请检查']);
+                sysCall('regErr', ['验证密钥错误，本地开发环境为 123456, 请检查']);
                 setTimeout(() => {
+                    console.log('close socket');
                     socket.end();
                 }, 200);
                 return;
@@ -564,6 +565,7 @@ function createService(url, readyCallback, errorCallback = null) {
 }
 
 const serverWs = hprose.Server.create("ws://0.0.0.0:" + (sPort + 1));
+serverWs.debug = true;
 // 订阅功能
 serverWs.publish('xdapp_subscribe', {
     'timeout'  : 3600 * 1000,

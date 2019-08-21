@@ -15,7 +15,7 @@
     "commander": "^2.20.0",
     "hprose": "github:hprose/hprose-nodejs#master",
     "node-sass": "^4.12.0",
-    "typescript": "^3.5.2",
+    "typescript": "^3.5.3",
     "uglify-es": "^3.3.9",
     "vue-template-compiler": "^2.6.10",
     "vue-template-es2015-compiler": "^1.9.1",
