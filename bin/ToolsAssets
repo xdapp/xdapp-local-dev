@@ -55,6 +55,7 @@ if (process.argv[1] !== __filename) {
         watchProject,
         checkDirDiff,
         assetsForUpdate,
+        assetsGetServerCode,
         assetsForDownload,
         assetsForDelete,
         setDevelop: (status) => {
@@ -447,40 +448,47 @@ function assetsForDelete(file, conf, done, error) {
     addHttpJob([url, '', myOpt]);
 }
 
-function assetsForDownload(file, conf, done, error) {
+function assetsGetServerCode(file, conf, done, error) {
     let myOpt = {
         getContent: true,
         done: (content) => {
             postDone();
             if (false === content) {
                 // 服务器文件不存在
-                console.log(`    \x1b[32mDownload done (not found): ${file}\x1b[0m`);
-                if (error)error('File not found on server: ' + file);
+                const err = new Error(`Download done (not found): ${file}`);
+                console.log(`\x1b[32m${err.message}\x1b[0m`);
+                if (error)error(err);
                 return;
             }
             console.log(`    \x1b[32mDownload done: ${file}\x1b[0m`);
 
-            // 写文件
-            const filePath = SRC_DIR + file;
-            const outDir = path.dirname(filePath);
-            if (!fs.existsSync(outDir)) {
-                // 创建目录
-                mkDir(outDir);
-            }
-            fs.writeFileSync(filePath, content);
-
-            if (done)done(file);
+            if (done)done(file, content);
         },
-        error: () => {
+        error: (err) => {
             console.log(`    \x1b[31mDownload fail ${file}\x1b[0m`);
             postDone();
-            if (error)error(file);
+            if (error)error(err);
         }
     };
     const time = parseInt(new Date().getTime() / 1000);
     const sign = md5(`${time}.${file}.${conf.assetsToken}.${conf.adminAccount}`);
     const url  = `${conf.assetsOrigin}/down/${conf.appName}/${file}?time=${time}&user=${conf.adminAccount}&sign=${sign}`;
     addHttpJob([url, '', myOpt]);
+}
+
+function assetsForDownload(file, conf, done, error) {
+    assetsGetServerCode(file, conf, function (file, content) {
+        // 写文件
+        const filePath = SRC_DIR + file;
+        const outDir = path.dirname(filePath);
+        if (!fs.existsSync(outDir)) {
+            // 创建目录
+            mkDir(outDir);
+        }
+        fs.writeFileSync(filePath, content);
+
+        if (done)done(file, content);
+    }, error);
 }
 
 /**

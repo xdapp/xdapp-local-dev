@@ -140,8 +140,10 @@ const httpServer = http.Server((request, response) => {
 
     if ('' === ext || uri.substr(uri.length - 1) === '/') {
         // 显示页面
-        outIndexPage(response);
-        return;
+        if (uri !== 'code-compare') {
+            outIndexPage(response);
+            return;
+        }
     }
 
     switch (action) {
@@ -181,6 +183,26 @@ const httpServer = http.Server((request, response) => {
                 response.end();
                 return;
             }
+            break;
+
+        case 'code-compare':
+            // 对比文件
+            const req = require('request');
+            try {
+                const url = 'http://127.0.0.1:8088/code-compare?';
+                req(url + request.url.split('?')[1], {
+                    headers: {
+                        'Accept-Encoding': 'none',  // 返回内容不要压缩
+                    }
+                }, function (error, rep, body) {
+                    response.statusCode = rep.statusCode;
+                    response.end(body);
+                });
+            }
+            catch (e) {
+                console.log(e);
+            }
+            return;
     }
 
     if ('' === ext) {
@@ -282,10 +304,7 @@ const httpServer = http.Server((request, response) => {
 });
 
 let io;
-if (program.dev) {
-    // 研发模式
-    io = require('socket.io')(httpServer);
-}
+io = require('socket.io')(httpServer);
 
 ToolsAssets.watchProject({
     compress: isCompress,
@@ -880,6 +899,49 @@ serverWs.addAsyncFunction(function (appId, idx, files, callback) {
         });
     }
 }, 'local_assets_downloadFiles');
+
+// 获取服务器和本地代码
+serverWs.addAsyncFunction(function (appId, idx, file, callback) {
+    try {
+        if (arguments.length !== 4) {
+            throw new Error('参数错误');
+        }
+
+        if (!file) {
+            throw new Error('文件不能为空');
+        }
+
+        const project = projectConfig[idx];
+        if (!project || project.appId !== appId) {
+            console.log(appId, idx);
+            throw new Error('未找到项目，请刷新页面重试');
+        }
+
+        const done = function(file, content) {
+            const localFile = BASE_DIR + 'src/' + file;
+            const localContent = fs.existsSync(localFile) ? fs.readFileSync(localFile, {encoding: 'utf-8'}) : '';
+            callback({
+                status: true,
+                local: localContent,
+                server: content,
+            });
+        };
+        const error = function (err) {
+            callback({
+                status: false,
+                msg: err,
+            });
+        };
+        ToolsAssets.assetsGetServerCode(file, project, done, error);
+    }
+    catch (e) {
+        console.log(e);
+        callback({
+            status: false,
+            msg: e.message,
+        });
+    }
+}, 'local_assets_getLocalAndServerCode');
 
 
 // 绑定项目
