@@ -175,7 +175,7 @@ function update(done, error) {
             // console.log('No need to update');
             // return null;
         }
-        const url = 'https://www.xdapp.com/hub000/xdapp-local-dev/archive/v' + ver + '.tar.gz';
+        const url = 'https://github.com/xdapp/xdapp-local-dev/archive/v' + ver + '.tar.gz';
         getFile(url, function (file) {
             console.log('download file success');
             // 输出临时目录
