@@ -1,6 +1,8 @@
 [
   {"title": "Dashboard 演示", "icon": "fa fa-desktop-alt", "url": "dashboard"},
+  {"title": "RPC通信测试", "icon": "fa fa-rocket", "url": "service1/test-rpc"},
   {"title": "测试页面1", "icon": "fa fa-car", "url": "service1/test1"},
   {"title": "测试页面2", "icon": "", "url": "service1/test2"},
-  {"title": "RPC通信测试", "icon": "fa fa-rocket", "url": "service1/test-rpc"}
+  {"title": "Card 演示", "icon": "", "url": "examples/card"},
+  {"title": "Form 演示", "icon": "", "url": "examples/form/submit"}
 ]

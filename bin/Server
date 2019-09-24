@@ -16,7 +16,7 @@ program
     .option('-p, --port <n>', '监听端口，默认 8060')
     .option('--nocompress', '研发模式时关闭压缩')
     .option('--nocache', '禁用缓存')
-    .option('--dev', '研发模式, 将关闭压缩功能')
+    .option('--dev', '研发模式, 可以输出 RPC 请求和返回数据包内容')
     .option('--rebuild', '启动时重新生成静态页面')
     .option('--service-origin <string>', '服务源，默认 https://dev.xdapp.com')
     .option('--assets-origin <string>', '静态文件源，默认 https://dev-assets.xdapp.com')
@@ -681,6 +681,27 @@ serverWs.addAsyncFunction(function (appId, idx, callback) {
     }
 }, 'local_project_switch');
 
+// 取消绑定的项目
+serverWs.addAsyncFunction(function (callback) {
+    try {
+        projectConfig.forEach((item) => {
+            delete item.bind;
+        });
+        bindProject = null;
+
+        if (hpClientService) {
+            hpClientService = null;
+            hpClient = null;
+        }
+        fs.writeFileSync(projectFile, JSON.stringify(projectConfig, null, 2));
+        callback(true);
+    }
+    catch (e) {
+        console.log(e);
+        callback(false);
+    }
+}, 'local_project_noneBind');
+
 // 解绑项目
 serverWs.addFunction(function (appId, idx) {
     try {
@@ -983,6 +1004,12 @@ serverWs.addFunction(async function () {
     }
 
     let devMenu = [
+        {id: 1, title: "顶部导航菜单", icon: "fa fa-arrow-alt-to-top", url: "#nav"},
+        {id: 21, title: "搜索", parentId: 1, icon: "fa fa-search", url: "#search"},
+        {id: 22, title: "刷新", parentId: 1, icon: "fa fa-sync", url: "#refresh"},
+        {id: 23, title: "设置", parentId: 1, icon: "fa fa-cog", url: "#setting"},
+        {id: 24, title: "信息", parentId: 1, icon: "fa fa-info-circle", url: "#info"},
+        // {id: 25, title: "通知", parentId: 1, icon: "fa fa-bell", url: "#notice"},
         {"local": true, title: '开发工具', icon: "fa fa-rocket", id: -999},
         {"local": true, title: '本地开发工具', icon: "fa fa-rocket", id: -998, url: 'dev/', parentId: -999},
     ];
@@ -1038,7 +1065,15 @@ serverWs.addFunction(async function () {
     }
 
     // 合并菜单
-    return rs ? devMenu.concat(rs) : devMenu;
+    rs = rs ? devMenu.concat(rs) : devMenu;
+
+    // 对于重复id的合并移除
+    const menuById = {}
+    rs.forEach((item) => {
+        const id = '_' + (item.id ? item.id : (new Date().getTime() + Math.random() * 10000))
+        menuById[id] = item
+    })
+    return Object.values(menuById)
 }, 'xdapp_my_getMenu');
 
 // 格式化时间

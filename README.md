@@ -20,7 +20,7 @@ Options:
   -p, --port <n>       监听端口，默认 8060
   --nocompress         研发模式时关闭压缩
   --nocache            禁用缓存
-  --dev                前端研发模式
+  --dev                研发模式，可以输出 RPC 请求和返回数据包内容
   --rebuild            启动时重新生成静态页面
   -h, --help           output usage information
 ```

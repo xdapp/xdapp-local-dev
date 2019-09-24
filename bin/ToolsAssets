@@ -1151,11 +1151,17 @@ function compileTypescript(content, moduleName, includeModuleName = false) {
         const uri = m[2];
         const uriArr = uri.split('/');
         if (uriArr[0] !== '.' && uriArr[0] !== '..') {
-            // 无需处理相对目录
+            // 处理根路径与相对目录
+            let replacedUri = uri;
             if (path.extname(uri) === '.js') {
                 // 移除 .js 后缀
-                content = content.replace(m[0], m[1] + uri.substr(0, uri.length - 3) + m[3]);
+                replacedUri =  uri.substr(0, uri.length - 3);
             }
+            if (uriArr[0] === '@') {
+                // 移除 @ 标记
+                replacedUri =  uri.substr(2, uri.length);
+            }
+            content = content.replace(m[0], m[1] + replacedUri + m[3]);
             return;
         }
 

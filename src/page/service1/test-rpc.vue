@@ -21,19 +21,20 @@
                 <el-button type="warning" @click="getTimeAsync()">获取服务器时间（异步方式）</el-button>
                 <el-button type="danger" @click="getTimeCo()">获取服务器时间（协程方式）</el-button>
                 <br><br><br><br><br>
-                访问自定义"test"服务的abc() RPC方法, 代码如下：
-                <el-alert
-                    type="info">
-<pre>
-this.$service.test.abc('hello').then((data) => {
+                访问自定义"gm"服务的 hello() RPC方法, 代码如下：
+                <br>
+                <br>
+                <el-alert type="info" effect="dark" :closable="false">
+<pre style="line-height: 1.8em">
+this.$service.gm.hello('world').then((data) => {
     console.log('get data:', data);
     this.$app.success(data);
 });
 </pre>
                 </el-alert>
                 <br>
-                <el-button type="danger" @click="customRpc()">请求</el-button>
-                <br>使用XDAPP的agent连接到本服务的TCP端口, 注册为 test 服务，并暴露 abc() 方法。
+                <el-button type="danger" @click="customRpc()" style="margin-bottom: 10px">点击发送RPC请求</el-button>
+                <br >使用XDAPP的agent连接到本服务的TCP端口, 注册为 gm 服务，并暴露 hello() 方法。
             </div>
         </div>
     </div>
@@ -104,7 +105,7 @@ this.$service.test.abc('hello').then((data) => {
                 });
             },
             customRpc() {
-                this.$service.test.abc('hello').then((data) => {
+                this.$service.gm.hello('world').then((data) => {
                     console.log('get data:', data);
                     this.$app.success(data);
                 });
