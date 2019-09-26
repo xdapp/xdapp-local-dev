@@ -550,6 +550,9 @@ function httpPost(url, postData, opt) {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Content-Length': Buffer.byteLength(postData)
     };
+    if (program.dev) {
+        console.log('    request api: ', url);
+    }
 
     const req = require(options.protocol === 'https:' ? 'https' : 'http').request(options, (res) => {
         res.setEncoding('utf8');
@@ -573,6 +576,12 @@ function httpPost(url, postData, opt) {
                             opt.done(data);
                         }
                     }
+                    return;
+                }
+                if (data.substr(0, 1) === '<') {
+                    const err = '服务器返回内容异常';
+                    if (opt.error) opt.error(err);
+                    console.log(err, data)
                     return;
                 }
                 const rs = JSON.parse(data);

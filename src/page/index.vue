@@ -1,6 +1,5 @@
 <template>
 <div>
-    <title>{{$t('index.titleDashboard')}}</title>
     <Card title="首页">
         请替换本首页面内容为你的内容或删除本页，本文件路径 <code>src/page/index.vue</code>
 

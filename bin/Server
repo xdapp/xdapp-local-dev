@@ -597,6 +597,12 @@ serverWs.addFunction(function (token) {
 
     try {
         let found = -1;
+        if (!token.origin) {
+            console.log("token error, please check");
+            return false;
+        }
+        // 如果结尾有斜杠，将斜杠移除
+        token.origin = token.origin.replace(/\/$/g, '');
         projectConfig.forEach((item, idx) => {
             if (item.appId === token.id && item.origin === token.origin) {
                 // 同一个
@@ -869,6 +875,41 @@ serverWs.addAsyncFunction(function (appId, idx, files, callback) {
         });
     }
 }, 'local_assets_deleteFiles');
+
+// 删除本地静态文件
+serverWs.addAsyncFunction(function (appId, idx, files, callback) {
+    try {
+        if (arguments.length !== 4) {
+            throw new Error('参数错误');
+        }
+
+        if (!files || files.length === 0) {
+            throw new Error('文件列表为空');
+        }
+
+        const project = projectConfig[idx];
+        if (!project || project.appId !== appId) {
+            console.log(appId, idx);
+            throw new Error('未找到项目，请刷新页面重试');
+        }
+
+        files.forEach(file => {
+            const fullPath = BASE_DIR + 'src/' + file;
+            if (fs.existsSync(fullPath)) {
+                fs.unlinkSync(fullPath);
+                console.log(`    \x1b[31mDelete assets file: ${file}\x1b[0m`);
+            }
+        })
+        callback(true);
+    }
+    catch (e) {
+        console.log(e);
+        callback({
+            status: false,
+            msg: e.message,
+        });
+    }
+}, 'local_assets_deleteLocalFiles');
 
 // 下载静态文件
 serverWs.addAsyncFunction(function (appId, idx, files, callback) {
