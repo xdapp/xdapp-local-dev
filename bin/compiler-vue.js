@@ -1,4 +1,4 @@
-const fs            = require('fs');
+const fs           = require('fs');
 const path         = require('path');
 const chalk        = require('chalk');
 const Emitter      = require('events').EventEmitter;
@@ -15,8 +15,6 @@ try {
     hasBabel = false
 }
 
-let resolvedPartsCache = Object.create(null);
-
 // expose compiler
 let compiler = module.exports = new Emitter();
 compiler.setMaxListeners(Infinity);
@@ -29,6 +27,10 @@ options.sass = {
 
 compiler.setSassOption = function (key, value) {
     options.sass[key] = value;
+    return this;
+};
+compiler.setOption = function (key, value) {
+    options[key] = value;
     return this;
 };
 
@@ -71,6 +73,7 @@ compiler.compile = function (content, filePath, cb) {
         if (style.scoped) {
             style.scoped = false;
             style.content = `[${id}]{${style.content}}`;
+            style.lang = 'scss';
         }
         return processStyle(style, filePath, id, resolvedParts)
     })))
@@ -78,7 +81,6 @@ compiler.compile = function (content, filePath, cb) {
         .catch(cb);
 
     function mergeParts() {
-        resolvedPartsCache[id] = resolvedParts;
         let output = '';
         // script
         let script = resolvedParts.script;
@@ -87,7 +89,7 @@ compiler.compile = function (content, filePath, cb) {
         }
         // styles
         let style = resolvedParts.styles.join('\n');
-        if (style) {
+        if (style.replace(/ |\r\n/g, '')) {
             // emit style
             compiler.emit('style', {
                 file: filePath,
@@ -105,15 +107,28 @@ compiler.compile = function (content, filePath, cb) {
                 'exports["default"].render = ' + template.render + ';\n' +
                 'exports["default"].staticRenderFns = ' + template.staticRenderFns + ';\n';
         }
-        if (parts.template && (/<title>(.*)<\/title>/.test(parts.template.content))) {
+        if ((/<title>(.*)<\/title>/.test(parts.template.content))) {
             output += 'exports["default"].haveTitle = true;\n';
         }
         // scoped CSS id
         if (hasScopedStyle) {
             output += 'exports["default"].scopedStyle = true;\n';
         }
+
+        if (options.dev) {
+            // 用于热更新的md5
+            const blockHash = {
+                style: style && !options.extractCSS ? genId(style).substr(0, 7) : '',
+                template: template ? genId(Object.values(template).join(',')).substr(0, 7) : '',
+                script: script ? genId(script).substr(0, 7) : '',
+            };
+            output += 'exports["default"].blockHash = ' + JSON.stringify(blockHash) + ';\n';
+        }
+
         output += 'exports["default"].hash = "' + id + '";\n';
-        output += 'require("app").default.vueInit(exports["default"]);\n';
+        output += 'exports["default"].uri = "' + filePath.replace(/^src\//, '') + '";\n';
+        output += 'require("app").vueInit(exports, module);\n';
+
         cb(null, output)
     }
 };

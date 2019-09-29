@@ -829,6 +829,7 @@ function buildVueFile(from, out, opt) {
 function buildVueContent(from, content, done, opt) {
     // 解析VUE组件
     compilerVue.setSassOption('outputStyle', 'compact');
+    compilerVue.setOption('dev', opt.dev);
     compilerVue.compile(content, from.substr(BASE_DIR.length), (err, contentVue) => {
         if (err) {
             console.log(`    \x1b[31merror: ${from}\x1b[0m`);
@@ -1194,7 +1195,10 @@ function compileTypescript(content, moduleName, includeModuleName = false) {
         content = content.replace(m[0], m[1] + newUri + m[3]);
     });
 
-    let rs = typeScript.transpileModule('import * as module from "module";\n' + content, {
+    content = 'import * as module from "module";\n'
+      + 'requirejs.hotCreateModule && requirejs.hotCreateModule(module);\n'
+      + content;
+    let rs = typeScript.transpileModule(content, {
         // moduleName: includeModuleName ? moduleName : undefined,
         compilerOptions: {
             module: typeScript.ModuleKind.AMD,
