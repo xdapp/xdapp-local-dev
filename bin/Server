@@ -110,7 +110,7 @@ function outIndexPage(response) {
     }
     else {
         const req = require('request');
-        req('https://dev-assets.xdapp.com/ui-agent-dev-index.html', {
+        req(AssetsOrigin + '/ui-agent-dev-index.html', {
             headers: {
                 'Accept-Encoding': 'none',  // 返回内容不要压缩
             }
@@ -184,25 +184,6 @@ const httpServer = http.Server((request, response) => {
                 return;
             }
             break;
-
-        case 'code-compare':
-            // 对比文件
-            const req = require('request');
-            try {
-                const url = 'http://127.0.0.1:8088/code-compare?';
-                req(url + request.url.split('?')[1], {
-                    headers: {
-                        'Accept-Encoding': 'none',  // 返回内容不要压缩
-                    }
-                }, function (error, rep, body) {
-                    response.statusCode = rep.statusCode;
-                    response.end(body);
-                });
-            }
-            catch (e) {
-                console.log(e);
-            }
-            return;
     }
 
     if ('' === ext) {
@@ -285,9 +266,6 @@ const httpServer = http.Server((request, response) => {
             response.statusCode = 500;
             response.end(err.toString());
             return;
-        }
-        if (ext === '.js' && uri.substr(uri.length - 20) === '/js/require-setup.js') {
-            content = fixSetupContent(content);
         }
         if (!program.nocache && !program.dev && ext !== '.map' && uriArr[0] !== 'app' && uriArr[0] !== 'images') {
             // 记录缓存
