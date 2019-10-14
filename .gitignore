@@ -10,3 +10,13 @@ Icon?
 /webroot/dev/*
 /node_modules/*
 /package-lock.json
+/src/page/*
+!/src/page/*.vue
+!/src/page/*.js
+!/src/page/service1
+projects.json
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json

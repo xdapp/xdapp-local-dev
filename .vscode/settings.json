@@ -1,0 +1,7 @@
+{
+  "eslint.validate": [
+    "javascript",
+    { "language": "vue", "autoFix": true }
+  ],
+  "svg.preview.background": "transparent"
+}
