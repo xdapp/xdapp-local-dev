@@ -575,7 +575,7 @@ serverWs.addFunction(function (token) {
 
     try {
         let found = -1;
-        if (!token.origin) {
+        if (!token.appId || !token.appName || !token.adminId || !token.adminAccount || !token.assetsOrigin) {
             console.log("token error, please check");
             return false;
         }
