@@ -2,11 +2,11 @@
 
 ### 初始化环境
 
-`npm install`
+`yarn install` 或 `npm install`
 
 ### 启动服务
 
-`bin/Server --dev` 或 `npm run dev`
+`bin/Server --dev` 或 `yarn run dev`
 
 `bin/Server` 使用方法：
 
