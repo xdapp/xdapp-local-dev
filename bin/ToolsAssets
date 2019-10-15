@@ -94,12 +94,12 @@ else {
 
     program
     .command('update [ver]')
-    .description('更新当前本地开发工具, 不指定则安装默认版本, 例: update 1.1.3')
+    .description('更新当前本地开发工具, 不指定则安装默认版本, 例: update v1.1.3')
     .action((ver) => {
         const localUp = require('./update-local-dev.js');
         if (ver) {
             if (ver !== 'master' && /^v[\d]+\.[\d]+\.[\d]+$/.test(ver) === false) {
-              console.log('版本格式错误，正确的格式例如：update 1.1.3')
+              console.log('版本格式错误，正确的格式例如：update v1.1.3')
               return;
             }
             localUp.updateToVersion(ver);

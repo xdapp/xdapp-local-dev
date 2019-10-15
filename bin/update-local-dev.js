@@ -186,11 +186,11 @@ function update(done, error) {
             console.log('服务器版本号低于当前版本，不可升级，若需要升级请指定版本: ' + ver);
             return;
         }
-        localUp.updateToVersion(ver)
+        updateToVersion(ver, done, error)
     }, error);
 }
 
-function updateToVersion (ver) {
+function updateToVersion (ver, done, error) {
     console.log('    Update to version: ' + ver);
     if (ver === version) {
         console.log('No need to update');
@@ -230,6 +230,7 @@ function updateToVersion (ver) {
             });
             exec.on('error', (err) => {
                 console.log(err);
+                if (error)error(err)
             });
             exec.on('close', (code) => {
                 // 清除临时文件
@@ -240,7 +241,7 @@ function updateToVersion (ver) {
                 });
                 rmDir(tmpDir + tmpName);
 
-                if (done)done(code);
+                if (done)done(code)
             });
         });
     }, function (err, req) {
@@ -250,6 +251,7 @@ function updateToVersion (ver) {
         else if (req.statusCode !== 200) {
             console.log('Download file error, please retry it.' + req.statusCode);
         }
+        if (error)error(err)
     });
 }
 
