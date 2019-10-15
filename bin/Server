@@ -11,7 +11,7 @@ const hprose = require('hprose');
 const crypto = require('crypto');
 
 program
-    .version('1.0')
+    .version(ToolsAssets.getVersion() || '1.0')
     .option('-h, --host <string>', '监听IP，默认 0.0.0.0')
     .option('-p, --port <n>', '监听端口，默认 8060')
     .option('--nocompress', '研发模式时关闭压缩')

@@ -113,7 +113,7 @@ try {
     let setting = fs.readFileSync(BASE_DIR + 'setting.json');
     setting = JSON.parse(setting);
     version = setting.version;
-    console.log('    Current version:', version);
+    console.log('    Current version: v' + version);
 }
 catch (e) {
     console.log('    读取当前版本失败：', e);
@@ -125,6 +125,7 @@ function getLastVersion(done, error = null) {
             console.log('检查版本失败');
             if (error)error(res);
         }
+
 
         let data = '';
         res.on('data', (d) => {
@@ -140,6 +141,7 @@ function getLastVersion(done, error = null) {
         if (error)error(res);
     });
 }
+
 
 function getFile(url, done, error = null) {
     https.get(url, (res) => {
@@ -179,7 +181,13 @@ function getFile(url, done, error = null) {
 }
 
 function update(done, error) {
-    getLastVersion(updateToVersion);
+    getLastVersion(function (ver) {
+        if (versionCompare(ver, version, '<')) {
+            console.log('服务器版本号低于当前版本，不可升级，若需要升级请指定版本: ' + ver);
+            return;
+        }
+        localUp.updateToVersion(ver)
+    }, error);
 }
 
 function updateToVersion (ver) {
@@ -267,6 +275,90 @@ function md5(str) {
 }
 function fileMd5(file) {
     return md5(fs.readFileSync(file));
+}
+
+
+// see http://locutus.io/php/info/version_compare/
+function versionCompare(v1, v2, operator) {
+    var i
+    var x
+    var compare = 0
+
+    var vm = {
+        'dev': -6,
+        'alpha': -5,
+        'a': -5,
+        'beta': -4,
+        'b': -4,
+        'RC': -3,
+        'rc': -3,
+        '#': -2,
+        'p': 1,
+        'pl': 1
+    }
+
+    var _prepVersion = function (v) {
+        v = ('' + v).replace(/[_\-+]/g, '.')
+        v = v.replace(/([^.\d]+)/g, '.$1.').replace(/\.{2,}/g, '.')
+        return (!v.length ? [-8] : v.split('.'))
+    }
+    // This converts a version component to a number.
+    // Empty component becomes 0.
+    // Non-numerical component becomes a negative number.
+    // Numerical component becomes itself as an integer.
+    var _numVersion = function (v) {
+        return !v ? 0 : (isNaN(v) ? vm[v] || -7 : parseInt(v, 10))
+    }
+
+    v1 = _prepVersion(v1)
+    v2 = _prepVersion(v2)
+    x = Math.max(v1.length, v2.length)
+    for (i = 0; i < x; i++) {
+        if (v1[i] === v2[i]) {
+            continue
+        }
+        v1[i] = _numVersion(v1[i])
+        v2[i] = _numVersion(v2[i])
+        if (v1[i] < v2[i]) {
+            compare = -1
+            break
+        } else if (v1[i] > v2[i]) {
+            compare = 1
+            break
+        }
+    }
+    if (!operator) {
+        return compare
+    }
+
+    // Important: operator is CASE-SENSITIVE.
+    // "No operator" seems to be treated as "<."
+    // Any other values seem to make the function return null.
+    switch (operator) {
+        case '>':
+        case 'gt':
+            return (compare > 0)
+        case '>=':
+        case 'ge':
+            return (compare >= 0)
+        case '<=':
+        case 'le':
+            return (compare <= 0)
+        case '===':
+        case '=':
+        case 'eq':
+            return (compare === 0)
+        case '<>':
+        case '!==':
+        case 'ne':
+            return (compare !== 0)
+        case '':
+        case '<':
+        case 'lt':
+            return (compare < 0)
+        default:
+            return null
+    }
 }
 
 if (process.argv[1] !== __filename) {
