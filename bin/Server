@@ -28,7 +28,7 @@ const sPort = port + 1;
 
 // 默认前端路径
 const AssetsOrigin = program.assetsOrigin ? program.assetsOrigin.replace(/\/$/, '') : 'https://dev-assets.xdapp.com';
-const ServiceOrigin = program.serviceOrigin ? program.serviceOrigin.replace(/\/$/, '') : 'https://dev.xdapp.com';
+let ServiceOrigin = program.serviceOrigin ? program.serviceOrigin.replace(/\/$/, '') : 'https://dev.xdapp.com';
 
 if (port < 80) {
     console.log("端口错误, 不可小于80");
@@ -41,6 +41,11 @@ const projectFile = BASE_DIR + 'projects.json';
 const isCompress = true !== program.nocompress && !program.dev;
 const projectConfig = getProjectConfig();
 let bindProject = getBindProject();
+
+if (bindProject && bindProject.serviceOrigin) {
+    ServiceOrigin = bindProject.serviceOrigin
+    console.log(`    use service origin: ${ServiceOrigin}`)
+}
 
 let cachedFiles = {};
 let TEMP_DIR = `${BASE_DIR}.cache/`;
@@ -575,13 +580,12 @@ serverWs.addFunction(function (token) {
 
     try {
         let found = -1;
-        if (!token.appId || !token.appName || !token.adminId || !token.adminAccount || !token.assetsOrigin) {
+        if (!token.appId || !token.appName || !token.adminId || !token.adminAccount || !token.assetsOrigin || !token.serviceOrigin) {
             console.log("token error, please check");
             return false;
         }
         // 如果结尾有斜杠，将斜杠移除
         token.assetsOrigin = token.assetsOrigin.replace(/\/$/g, '');
-        token.origin = token.origin.replace(/\/$/g, '');
         projectConfig.forEach((item, idx) => {
             if (item.appId === token.appId && item.origin === token.origin) {
                 // 同一个
@@ -599,6 +603,7 @@ serverWs.addFunction(function (token) {
         return true;
     }
     catch (e) {
+        console.log(e)
         return false;
     }
 }, 'local_project_bind');
@@ -649,6 +654,7 @@ serverWs.addAsyncFunction(function (appId, idx, callback) {
             hpClient = null;
         }
 
+        ServiceOrigin = bindProject.serviceOrigin || ServiceOrigin;
         // 重新绑定
         hpClientService = createService(ServiceOrigin + '/service/' + bindProject.appName, function (proxy) {
             hpClient = proxy;
@@ -658,7 +664,7 @@ serverWs.addAsyncFunction(function (appId, idx, callback) {
             callback(getProjectPublishData(bindProject));
         });
 
-        console.log('    bind new project: ' + bindProject.appName);
+        console.log('    bind new project: ' + bindProject.appName + ', service origin: ' + ServiceOrigin);
     }
     catch (e) {
         console.log(e);
