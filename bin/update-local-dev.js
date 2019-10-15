@@ -90,7 +90,7 @@ function setup(SETUP_PATH) {
         cmd = 'npm';
     }
 
-    console.log('copy done. now run '+ cmd +' install');
+    console.log('Copy done. now run '+ cmd +' install, please wait a moment');
     const exec = spawn(cmd, ['install'], {cwd: SETUP_PATH});
     exec.stdout.on('data', (data) => {
         console.log(data.toString().replace(/\n$/, ''));
@@ -132,7 +132,7 @@ function getLastVersion(done, error = null) {
         });
         res.on('end', () => {
             const rs = JSON.parse(data);
-            done(rs.version);
+            done('v' + rs.version);
         });
 
     }).on('error', (e) => {
@@ -148,8 +148,8 @@ function getFile(url, done, error = null) {
             return;
         }
         if (res.statusCode !== 200) {
-            console.log('检查版本失败');
-            if (error)error(res);
+            if (error)error(new Error('Download ' + url + ' error'), res);
+            return;
         }
         res.setEncoding('binary');
 
@@ -174,64 +174,74 @@ function getFile(url, done, error = null) {
         });
     }).on('error', (e) => {
         console.error(e);
-        if (error)error(res);
+        if (error)error(e, res);
     });
 }
 
 function update(done, error) {
-    getLastVersion(function (ver) {
-        console.log('Server version: ' + ver);
-        if (ver === version) {
-            // console.log('No need to update');
-            // return null;
-        }
-        const url = 'https://github.com/xdapp/xdapp-local-dev/archive/v' + ver + '.tar.gz';
-        getFile(url, function (file) {
-            console.log('download file success');
-            // 输出临时目录
-            const dest = tmpDir + tmpName;
-            let haveError = false;
+    getLastVersion(updateToVersion);
+}
 
-            fs.createReadStream(file)
-            .on("error", function (err) {
-                haveError = true;
+function updateToVersion (ver) {
+    console.log('    Update to version: ' + ver);
+    if (ver === version) {
+        console.log('No need to update');
+        return null;
+    }
+    const url = 'https://github.com/xdapp/xdapp-local-dev/archive/' + ver + '.tar.gz';
+    console.log('Downloading: ' + url)
+    getFile(url, function (file) {
+        console.log('download file success');
+        // 输出临时目录
+        const dest = tmpDir + tmpName;
+        let haveError = false;
+
+        fs.createReadStream(file)
+        .on("error", function (err) {
+            haveError = true;
+            console.log(err);
+            if (error)error(err);
+        })
+        .pipe(zlib.Unzip())
+        .pipe(tar.Extract({path: dest}))
+        .on("end", () => {
+            // 解压完毕
+            console.log('unzip success');
+            if (haveError) return;
+
+            // 执行更新的脚本文件
+            const sh = tmpDir + tmpName + '/xdapp-local-dev-' + ver + '/bin/' + path.basename(__filename);
+            // fs.copyFileSync(__filename, sh);
+            console.log(sh);
+            const exec = spawn('node', [sh, BASE_DIR], {cwd: tmpDir + tmpName + '/'});
+            exec.stdout.on('data', (data) => {
+                console.log(data.toString().replace(/\n$/, ''));
+            });
+            exec.stderr.on('error', (err) => {
                 console.log(err);
-                if (error)error(err);
-            })
-            .pipe(zlib.Unzip())
-            .pipe(tar.Extract({path: dest}))
-            .on("end", () => {
-                // 解压完毕
-                console.log('unzip success');
-                if (haveError) return;
+            });
+            exec.on('error', (err) => {
+                console.log(err);
+            });
+            exec.on('close', (code) => {
+                // 清除临时文件
+                fs.unlink(tmpDir + tmpName + '.tar.gz', (err) => {
+                    if (err) {
+                        console.log(err);
+                    }
+                });
+                rmDir(tmpDir + tmpName);
 
-                // 执行更新的脚本文件
-                const sh = tmpDir + tmpName + '/xdapp-local-dev-' + ver + '/bin/' + path.basename(__filename);
-                // fs.copyFileSync(__filename, sh);
-                console.log(sh);
-                const exec = spawn('node', [sh, BASE_DIR], {cwd: tmpDir + tmpName + '/'});
-                exec.stdout.on('data', (data) => {
-                    console.log(data.toString().replace(/\n$/, ''));
-                });
-                exec.stderr.on('error', (err) => {
-                    console.log(err);
-                });
-                exec.on('error', (err) => {
-                    console.log(err);
-                });
-                exec.on('close', (code) => {
-                    done(code);
-
-                    // 清除临时文件
-                    fs.unlink(tmpDir + tmpName + '.tar.gz', (err) => {
-                        if (err) {
-                            console.log(err);
-                        }
-                    });
-                    rmDir(tmpDir + tmpName);
-                });
+                if (done)done(code);
             });
         });
+    }, function (err, req) {
+        if (req.statusCode === 404) {
+            console.log('Version ' + ver + ' not found, please check at https://github.com/xdapp/xdapp-local-dev/releases');
+        }
+        else if (req.statusCode !== 200) {
+            console.log('Download file error, please retry it.' + req.statusCode);
+        }
     });
 }
 
@@ -262,6 +272,7 @@ function fileMd5(file) {
 if (process.argv[1] !== __filename) {
     module.exports = {
         update,
+        updateToVersion,
         setup,
         getLastVersion,
     }
