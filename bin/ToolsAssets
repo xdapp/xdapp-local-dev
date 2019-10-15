@@ -3,7 +3,7 @@ const program     = require('commander');
 const path        = require('path');
 const fs          = require('fs');
 const crypto      = require('crypto');
-const YAML        = require('yaml');
+const yaml        = require('js-yaml');
 const UglifyJS    = require("uglify-es");
 const sass        = require('node-sass');
 const compilerVue = require('./compiler-vue');
@@ -916,7 +916,12 @@ function buildYamlFile(from, out, opt = {}) {
         }
         try {
             const start = new Date().getTime();
-            let data = YAML.parse(content);
+            let data = yaml.safeLoad(content);
+            if (typeof data !== 'object') {
+                console.log(`    \x1b[31merror, please check yaml content: ${from}\x1b[0m`);
+                if (opt.error)opt.error(err);
+                return;
+            }
             data = ksortRecursive(data);
             let str = JSON.stringify(data, null, 2);
             if (opt.compress)str = str.replace(/\n[ ]+/g, '\n');
