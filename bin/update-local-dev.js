@@ -80,11 +80,11 @@ function setup(SETUP_PATH) {
     }
 
     let cmd
-    if (fs.existsSync(SETUP_PATH + 'package-lock.json')) {
-        cmd = 'npm';
-    }
-    else if (fs.existsSync(SETUP_PATH + 'yarn.lock')) {
+    if (fs.existsSync(SETUP_PATH + 'yarn.lock')) {
         cmd = 'yarn';
+    }
+    else if (fs.existsSync(SETUP_PATH + 'package-lock.json')) {
+        cmd = 'npm';
     }
     else {
         cmd = 'npm';
