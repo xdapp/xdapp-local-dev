@@ -79,9 +79,19 @@ function setup(SETUP_PATH) {
         copyDir('src');
     }
 
-    console.log('copy done. now run npm install');
+    let cmd
+    if (fs.existsSync(SETUP_PATH + 'package-lock.json')) {
+        cmd = 'npm';
+    }
+    else if (fs.existsSync(SETUP_PATH + 'yarn.lock')) {
+        cmd = 'yarn';
+    }
+    else {
+        cmd = 'npm';
+    }
 
-    const exec = spawn('npm', ['install'], {cwd: SETUP_PATH});
+    console.log('copy done. now run '+ cmd +' install');
+    const exec = spawn(cmd, ['install'], {cwd: SETUP_PATH});
     exec.stdout.on('data', (data) => {
         console.log(data.toString().replace(/\n$/, ''));
     });
