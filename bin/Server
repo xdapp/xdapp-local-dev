@@ -122,6 +122,8 @@ function outIndexPage(response) {
                 'Accept-Encoding': 'none',  // 返回内容不要压缩
             }
         }, function (error, rep, body) {
+            if (!rep)rep = {statusCode: 500}
+            if (!body)body = 'Cant\'t get index page, please check network of ' + AssetsOrigin
             response.statusCode = rep.statusCode;
             if (AssetsOrigin !== 'https://dev-assets.xdapp.com') {
                 body = body.replace(/https:\/\/dev\-assets\.xdapp\.com/g, AssetsOrigin);
