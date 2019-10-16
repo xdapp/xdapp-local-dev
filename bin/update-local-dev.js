@@ -218,7 +218,7 @@ function updateToVersion (ver, done, error) {
             if (haveError) return;
 
             // 执行更新的脚本文件
-            const sh = tmpDir + tmpName + '/xdapp-local-dev-' + ver + '/bin/' + path.basename(__filename);
+            const sh = tmpDir + tmpName + '/xdapp-local-dev-' + ver.replace(/^v/, '') + '/bin/' + path.basename(__filename);
             // fs.copyFileSync(__filename, sh);
             console.log(sh);
             const exec = spawn('node', [sh, BASE_DIR], {cwd: tmpDir + tmpName + '/'});
