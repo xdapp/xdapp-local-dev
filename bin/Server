@@ -104,6 +104,8 @@ function getProjectPublishData(item) {
         bind: item.bind,
         addTime: item.addTime,
         assetsOrigin: item.assetsOrigin,
+        appUrl: item.appUrl,
+        createTime: item.createTime,
     };
 }
 
@@ -569,7 +571,7 @@ function createService(url, readyCallback, errorCallback = null) {
     service.setHeader('X-Local-Dev-AppId', bindProject.appId);
     service.setHeader('X-Local-Dev-AppName', bindProject.appName);
     service.setHeader('X-Local-Dev-Token', bindProject.serviceToken);
-    service.setHeader('X-Local-Dev-Token-Time', bindProject.serviceTime);
+    service.setHeader('X-Local-Dev-Token-Time', bindProject.createTime);
     return service;
 }
 
