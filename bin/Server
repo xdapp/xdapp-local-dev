@@ -18,7 +18,7 @@ program
     .option('--nocache', '禁用缓存')
     .option('--dev', '研发模式, 可以输出 RPC 请求和返回数据包内容')
     .option('--rebuild', '启动时重新生成静态页面')
-    .option('--service-origin <string>', '服务源，默认 https://dev.xdapp.com')
+    .option('--service-origin <string>', '服务源，默认 https://dev.xdapp.com/service')
     .option('--assets-origin <string>', '静态文件源，默认 https://dev-assets.xdapp.com')
     .parse(process.argv);
 
@@ -28,7 +28,7 @@ const sPort = port + 1;
 
 // 默认前端路径
 const AssetsOrigin = program.assetsOrigin ? program.assetsOrigin.replace(/\/$/, '') : 'https://dev-assets.xdapp.com';
-let ServiceOrigin = program.serviceOrigin ? program.serviceOrigin.replace(/\/$/, '') : 'https://dev.xdapp.com';
+let ServiceOrigin = program.serviceOrigin ? program.serviceOrigin.replace(/\/$/, '') : 'https://dev.xdapp.com/service';
 
 if (port < 80) {
     console.log("端口错误, 不可小于80");
@@ -548,12 +548,14 @@ function transportToService(socket, request, callback, timeout) {
 let hpClient, hpClientService;
 
 if (bindProject) {
-    hpClientService = createService( ServiceOrigin + '/service/' + bindProject.appName, function (proxy) {
+    hpClientService = createService( ServiceOrigin + '/' + bindProject.appName, function (proxy) {
         hpClient = proxy;
     });
 }
 
 function createService(url, readyCallback, errorCallback = null) {
+    // 强制使用 http 接口
+    url = url.replace(/^ws(s)?:\/\//, 'http$1://')
     let service = url.substr(0, 5) === 'ws://' || url.substr(0, 6) === 'wss://' ? new hprose.WebSocketClient(url) : new hprose.HttpClient(url);
     service.simple = true;
     service.fullDuplex = true;
@@ -563,6 +565,11 @@ function createService(url, readyCallback, errorCallback = null) {
         console.log(func, e);
     });
     service.setHeader('X-Local-Dev', 'XDApp');
+    service.setHeader('X-Local-Dev-AdminId', bindProject.adminId);
+    service.setHeader('X-Local-Dev-AppId', bindProject.appId);
+    service.setHeader('X-Local-Dev-AppName', bindProject.appName);
+    service.setHeader('X-Local-Dev-Token', bindProject.serviceToken);
+    service.setHeader('X-Local-Dev-Token-Time', bindProject.serviceTime);
     return service;
 }
 
@@ -580,7 +587,7 @@ serverWs.addFunction(function (token) {
 
     try {
         let found = -1;
-        if (!token.appId || !token.appName || !token.adminId || !token.adminAccount || !token.assetsOrigin || !token.serviceOrigin) {
+        if (!token.appId || !token.appName || !token.adminId || !token.adminAccount || !token.assetsOrigin || !token.serviceOrigin || !token.env) {
             console.log("token error, please check");
             return false;
         }
@@ -632,10 +639,6 @@ serverWs.addAsyncFunction(function (appId, idx, callback) {
         });
 
         if (!appId > 0)return false;
-        if (bindProject && bindProject.appId === appId) {
-            callback(false);
-            return false;
-        }
 
         const project = projectConfig[idx];
         if (!project || project.appId !== appId) {
@@ -656,7 +659,7 @@ serverWs.addAsyncFunction(function (appId, idx, callback) {
 
         ServiceOrigin = bindProject.serviceOrigin || ServiceOrigin;
         // 重新绑定
-        hpClientService = createService(ServiceOrigin + '/service/' + bindProject.appName, function (proxy) {
+        hpClientService = createService(ServiceOrigin + '/' + bindProject.appName, function (proxy) {
             hpClient = proxy;
 
             // 保存文件
