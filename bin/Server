@@ -1033,7 +1033,12 @@ serverWs.addFunction(function () {
 serverWs.addFunction(async function () {
     let rs;
     if (hpClient) {
-        rs = await hpClient.xdapp.menu.getList();
+        try {
+            rs = await hpClient.xdapp.menu.getList();
+        }
+        catch (e) {
+            console.log(e)
+        }
     }
 
     let devMenu = [
@@ -1109,6 +1114,57 @@ serverWs.addFunction(async function () {
     return Object.values(menuById)
 }, 'xdapp_my_getMenu');
 
+function rpcSendGmAsync(toolId, data, callback) {
+    if (!toolId) {
+        throw new Error("GM工具id缺失");
+    }
+    if (arguments.length !== 3)throw new Error("参数错误");
+
+    // 发送给GM工具的方法
+    const args = [
+        toolId,
+        data,
+        {
+            adminId: bindProject.adminId || 1,
+            time: parseInt(new Date().getTime() / 1000),
+        },
+    ];
+    const keys = Object.keys(RpcServices);
+    if (keys.length === 0) {
+        // callback(new Error('Service not connected'));
+        // return;
+    }
+    if (hpClientService) {
+        hpClientService.invoke('xdapp_gmTool_getDetail', [toolId]).then(function (rs) {
+            const actions = rs.setting.actions
+            let fun
+            console.log(actions.check)
+            if (actions.check && actions.check.method) {
+                fun = actions.check.method
+            }
+            else if (actions.send && actions.send.method) {
+                fun = actions.send.method
+            }
+            else {
+                fun = 'gmSend'
+            }
+            console.log("GM send transport to " + fun.replace(/\./, '_'), 'args: ', args)
+            transportCallAsync(fun.replace(/\./, '_'), args, callback);
+        }).catch( function(err) {
+            callback(err);
+        });
+    }
+    else {
+        transportCallAsync(keys[0] + '_gmSend', args, callback);
+    }
+}
+
+// 发送道具
+serverWs.addAsyncFunction(rpcSendGmAsync, 'xdapp_gmRecord_send');
+// 申请道具
+serverWs.addAsyncFunction(rpcSendGmAsync, 'xdapp_gmRecord_apply');
+
+
 // 格式化时间
 serverWs.addFunction(function (f = 'Y-m-d H:i:s') {
     const date = new Date();
@@ -1132,7 +1188,7 @@ serverWs.addFunction(function (f = 'Y-m-d H:i:s') {
         .replace(/s/g, num2str(s));
 }, 'xdapp_time_format');
 
-serverWs.addAsyncMissingFunction(function (name, args, callback) {
+function transportCallAsync(name, args, callback) {
     const pos = name.indexOf('_');
     const err = new Error('Can\'t find this function ' + name);
     if (-1 === pos) {
@@ -1171,7 +1227,9 @@ serverWs.addAsyncMissingFunction(function (name, args, callback) {
         body: 'C' + hprose.serialize(name) + hprose.serialize(args) + 'z',
     };
     transportToService(socket, request, callback, 600);
-});
+}
+
+serverWs.addAsyncMissingFunction(transportCallAsync);
 
 serverWs.start();
 

@@ -425,8 +425,8 @@ function assetsForUpdate(file, project, done, error) {
             postDone();
             if (done)done(file);
         },
-        error: () => {
-            console.log(`    \x1b[31mUpdate fail: ${file}\x1b[0m`);
+        error: (e) => {
+            console.log(`    \x1b[31mUpdate fail: ${file}\x1b[0m`, e);
             postDone();
             if (error)error(file);
         }
