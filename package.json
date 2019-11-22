@@ -5,6 +5,7 @@
   "scripts": {
     "start": "./bin/Server",
     "dev": "./bin/Server --dev",
+    "update": "./bin/ToolsAssets update",
     "deploy": "./bin/ToolsAssets deploy",
     "diff": "./bin/ToolsAssets diff",
     "down": "./bin/ToolsAssets down",

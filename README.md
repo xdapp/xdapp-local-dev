@@ -38,12 +38,13 @@ Options:
 `npm run diff` 相当于执行 `./bin/ToolsAssets diff --origin=https://dev-assets.xdapp.com`，可编辑 package.json 更改
 
 ```
-"start": "./bin/Server",
-"dev": "./bin/Server --dev",
-"deploy": "./bin/ToolsAssets deploy",
-"diff": "./bin/ToolsAssets diff",
-"down": "./bin/ToolsAssets down",
-"build": "./bin/ToolsAssets build"
+"start": "./bin/Server",                    # 启动服务
+"dev": "./bin/Server --dev",                # 启动开发服务
+"update": "./bin/ToolsAssets update",       # 升级本地开发工具
+"deploy": "./bin/ToolsAssets deploy",       # 部署前端
+"diff": "./bin/ToolsAssets diff",           # 查看差异
+"down": "./bin/ToolsAssets down",           # 下载远程文件到本地
+"build": "./bin/ToolsAssets build"          # 编译本地文件
 ```
 
 ### UI特性以及注意事项
@@ -97,6 +98,7 @@ src/
 
   Commands:
 
+    update [ver]           更新当前本地开发工具, 不指定则安装默认版本, 例: update v1.1.3
     build [dir]            生成指定文件
                            只生成指定文件: ToolsAssets build js/test.js
                            生成指定文件夹: ToolsAssets build [js|css|page|i18n]
