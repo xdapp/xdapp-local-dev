@@ -12,15 +12,16 @@
     "build": "./bin/ToolsAssets build"
   },
   "dependencies": {
+    "@vue/component-compiler-utils": "^3.1.0",
     "commander": "^2.20.3",
     "hprose": "github:hprose/hprose-nodejs#master",
+    "js-yaml": "^3.13.1",
     "node-sass": "^4.12.0",
     "typescript": "^3.6.4",
     "uglify-es": "^3.3.9",
     "vue-template-compiler": "^2.6.10",
     "vue-template-es2015-compiler": "^1.9.1",
-    "vueify": "^9.4.1",
-    "js-yaml": "^3.13.1"
+    "vueify": "^9.4.1"
   },
   "devDependencies": {
     "eslint": "5",
