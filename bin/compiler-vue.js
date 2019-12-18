@@ -4,8 +4,8 @@ const chalk        = require('chalk');
 const Emitter      = require('events').EventEmitter;
 const vueCompiler  = require('vue-template-compiler');
 const compilers    = require('../node_modules/vueify/lib/compilers');
-const rewriteStyle = require('../node_modules/vueify/lib/style-rewriter');
 const transpile    = require('vue-template-es2015-compiler');
+const compileUtils = require('@vue/component-compiler-utils')
 
 
 let hasBabel = true;
@@ -65,22 +65,7 @@ compiler.compile = function (content, filePath, cb) {
         script: null,
         styles: []
     };
-
-    Promise.all([
-        processTemplate(parts.template, filePath, resolvedParts),
-        processScript(parts.script, filePath, resolvedParts)
-    ].concat(parts.styles.map(function (style) {
-        if (style.scoped) {
-            style.scoped = false;
-            style.content = `[${id}]{${style.content}}`;
-            style.lang = 'scss';
-        }
-        return processStyle(style, filePath, id, resolvedParts)
-    })))
-        .then(mergeParts)
-        .catch(cb);
-
-    function mergeParts() {
+    const mergeParts = () => {
         let output = '';
         // script
         let script = resolvedParts.script;
@@ -113,6 +98,7 @@ compiler.compile = function (content, filePath, cb) {
         // scoped CSS id
         if (hasScopedStyle) {
             output += 'exports["default"].scopedStyle = true;\n';
+            output += 'exports["default"]._scopeId = "' + id + '";\n'
         }
 
         if (options.dev) {
@@ -131,6 +117,21 @@ compiler.compile = function (content, filePath, cb) {
 
         cb(null, output)
     }
+
+    Promise.all([
+        processTemplate(parts.template, filePath, resolvedParts),
+        processScript(parts.script, filePath, resolvedParts)
+    ].concat(parts.styles.map(function (style) {
+        if (!style.scoped) {
+            style.scoped = false;
+            // style.content = `[${id}]{${style.content}}`;
+            // style.lang = 'scss';
+        }
+        return processStyle(style, filePath, id, resolvedParts)
+    })))
+        .then(mergeParts)
+        .catch(cb);
+
 };
 
 function processTemplate(part, filePath, parts) {
@@ -162,8 +163,8 @@ function processStyle(part, filePath, id, parts) {
     return compileAsPromise('style', style, part.lang, filePath)
         .then(function (res) {
             res = res.trim();
-            return rewriteStyle(id, res, part.scoped, options).then(function (res) {
-                parts.styles.push(res)
+            return compileUtils.compileStyleAsync({id: id, source: res, scoped: part.scoped, postcssOptions: options}).then(function (res) {
+                parts.styles.push(res.code)
             })
         })
 }
