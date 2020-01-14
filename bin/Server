@@ -598,12 +598,12 @@ serverWs.addFunction(function (token) {
         // 如果结尾有斜杠，将斜杠移除
         token.assetsOrigin = token.assetsOrigin.replace(/\/$/g, '');
         projectConfig.forEach((item, idx) => {
-            if (item.appId === token.appId && item.origin === token.origin) {
+            if (item.appId === token.appId && item.appName === token.appName && item.env === token.env && item.origin === token.origin) {
                 // 同一个
                 found = idx;
             }
         });
-        if (found > 0) {
+        if (found >= 0) {
             projectConfig[found] = Object.assign(projectConfig[found], token);
         }
         else {
