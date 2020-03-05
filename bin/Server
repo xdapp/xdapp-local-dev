@@ -354,23 +354,71 @@ const serverRcp = net.createServer((socket) => {
         return sha1(`${appName}.${serviceName}.${time}.${rand}.${serviceKey}.xdapp.com`);
     }
 
-    socket.on('data', (data) => {
-        if (program.dev)console.log('[rpc] <<< ', data.toString());
-        // CFlag/CVer/NLength/NAppId/NServiceId/NRequestId/NAdminId/CContextLength
-        if (data.length < 20) {
-            console.log("收到一个错误RPC数据，已关闭连接");
-            socket.end();
-            return;
+    let packagesLength = 0;
+    let packages = []
+    let buffer = ''
+
+    // 处理分包
+    function _parseBuffer(data) {
+        const length = data.readInt32BE(2) + 6
+        if (data.length < length) {
+            // 包还没接受完毕
+            buffer = data
         }
+        else if (data.length > length) {
+            // 粘包
+            const newData = data.slice(0, length)
+            _onReceive(newData)
+            data = data.slice(length)
+            _parseBuffer(data)
+        }
+        else {
+            _onReceive(data)
+        }
+    }
+
+    // 收到一个完整的包
+    function _onReceive(data) {
+        const flag = data.readInt8(0);
+        if ((flag & FLAG_FINISH) !== FLAG_FINISH) {
+            // 还未完毕，等待下一个包
+            if (packages.length === 0) {
+                packages.push(data)
+            }
+            else {
+                data = data.slice(data.readInt8(22) + 23)       // 获取body内容
+                packages.push(data)
+            }
+            packagesLength += data.length
+            return
+        }
+
+        if (packages.length > 0) {
+            data = data.slice(data.readInt8(22) + 23)           // 获取body内容
+            packages.push(data)
+            data = Buffer.concat(packages, packagesLength + data.length)
+            // 更新长度
+            data.writeInt32BE(data.length - 6, 2);
+
+            // 重置
+            packagesLength = 0
+            packages = []
+        }
+
+        // 处理完整的包
+        _parse(data)
+    }
+
+    // 处理一个完整的包
+    function _parse(data) {
+        // CFlag/CVer/NLength/NAppId/NServiceId/NRequestId/NAdminId/CContextLength
+        const length = data.readInt32BE(2);
         const flag = data.readInt8(0);
         const ver  = data.readInt8(1);
         if (ver !== 1) {
-            console.log("关闭了一个连接");
-            socket.end();
+            console.log("收到的包数据版本不正确，预期1实际" + ver);
             return;
         }
-
-        const length = data.readInt32BE(2);
         const contextLength = data.readInt8(22);
         const request = {
             flag          : flag,
@@ -388,7 +436,14 @@ const serverRcp = net.createServer((socket) => {
         if ((flag & FLAG_RESULT_MODE) === FLAG_RESULT_MODE) {
             if ((flag & FLAG_SYS_MSG) === FLAG_SYS_MSG || (flag & FLAG_TRANSPORT) === FLAG_TRANSPORT) {
                 // 收到系统消息返回, 或来自浏览器的请求
-                let rs = hprose.unserialize(request.body.slice(1, request.body.length - 1).toString());
+                let rs
+                try {
+                    rs = hprose.unserialize(request.body.slice(1, request.body.length - 1).toString());
+                }
+                catch (e) {
+                    console.log('[rpc] 收到的数据解析失败，请检查数据包', data);
+                    return
+                }
                 const reqId = '_' + request.requestId;
                 if (request.body.slice(0, 1).toString() === 'E') {
                     rs = new Error(rs);
@@ -398,7 +453,8 @@ const serverRcp = net.createServer((socket) => {
                     delete RpcCallback[reqId];
                     try {
                         eve[0](rs);
-                    }catch (e) {
+                    }
+                    catch (e) {
                         console.error(e);
                     }
                 }
@@ -411,6 +467,21 @@ const serverRcp = net.createServer((socket) => {
         else {
             // 转发RPC请求
             console.log('[rpc] 暂不支持rpc服务间通信');
+        }
+    }
+
+    socket.on('data', (data) => {
+        if (program.dev)console.log('[rpc] <<< ', data.toString());
+
+        if (buffer.length > 0) {
+            data = Buffer.concat([buffer, data], buffer.length + data.length)
+            buffer = ''
+        }
+        if (data.length < 20) {
+            buffer = data
+        }
+        else {
+            _parseBuffer(data)
         }
     });
     socket.on('end', () => {
