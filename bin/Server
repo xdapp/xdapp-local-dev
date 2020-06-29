@@ -550,7 +550,7 @@ const serverRcp = net.createServer((socket) => {
             requestId: ++lastRequestId,
             adminId: 0,
             context: Buffer.from(contextStr),
-            body: 'C' + hprose.serialize('sys_' + fun) + hprose.serialize(args) + 'z',
+            body: 'C' + hprose.serialize('sys_' + fun) + hprose.serialize(args, true) + 'z',
         };
         transportToService(socket, request, callback, 10);
     }
@@ -591,7 +591,7 @@ function transportToService(socket, request, callback, timeout) {
 
     const bufHeader = new Buffer.alloc(packagePrefixLen + headerLength);
     // packagePrefix
-    const flag = request.flag | FLAG_TRANSPORT;
+    const flag = request.flag | FLAG_TRANSPORT | FLAG_FINISH;
     bufHeader.writeInt8(flag, 0);                         // flag
     bufHeader.writeInt8(RPC_VERSION, 1);                  // ver
     bufHeader.writeInt32BE(length, 2);                    // length
@@ -1261,13 +1261,15 @@ serverWs.addFunction(function (f = 'Y-m-d H:i:s') {
 
 function transportCallAsync(name, args, callback) {
     const pos = name.indexOf('_');
-    const err = new Error('Can\'t find this function ' + name);
     if (-1 === pos) {
+        const err = new Error('Can\'t find this function ' + name);
+        console.log('    RPC error: ' + err.message)
         throw err;
     }
     const serviceName = name.substr(0, pos);
 
-    if (!RpcServices[serviceName]) {
+    const socket = RpcServices[serviceName];
+    if (!socket) {
         if (serviceName === 'xdapp' && hpClientService) {
             // 调用绑定线上服务
             if (program.dev) {
@@ -1280,10 +1282,10 @@ function transportCallAsync(name, args, callback) {
             });
             return;
         }
-
+        const err = new Error('Can\'t find this function ' + name + ', service: ' + serviceName);
+        console.log('    RPC error: ' + err.message)
         throw err;
     }
-    const socket = RpcServices[serviceName];
 
     // 将消息转发给RPC Agent服务器
     const contextStr = '';
